@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  VEHICLE, COURSE, INITIAL_STATE, cloneState, localToWorld, frontDirection,
+  VEHICLE, COURSE, CONTROL_BINDINGS, INITIAL_STATE, cloneState, localToWorld, frontDirection,
   integratePose, stepVehicle, ackermannAngles, bodyPolygon, lineViolation,
   isFullyInsideBay, headingErrorToBay, predictionDirection, predictStates,
   referenceTrajectory, polygonsOverlapSAT, rectPolygon,
@@ -29,12 +29,17 @@ s = { ...INITIAL_STATE, rearX:1.2,rearZ:-0.7,yaw:0.37,steer:-0.31 };
 f = integratePose(s,3.7,s.steer); r = integratePose(f,-3.7,s.steer);
 near(r.rearX,s.rearX,1e-8); near(r.rearZ,s.rearZ,1e-8); angleNear(r.yaw,s.yaw,1e-8);
 
+assert.equal(CONTROL_BINDINGS.KeyW,'forward','W must map to forward');
+assert.equal(CONTROL_BINDINGS.KeyS,'reverse','S must map to reverse');
+assert.equal(CONTROL_BINDINGS.KeyA,'left','A must map to left steering');
+assert.equal(CONTROL_BINDINGS.KeyD,'right','D must map to right steering');
+
 s = cloneState(INITIAL_STATE);
-for(let i=0;i<120;i++) s=stepVehicle(s,1/120,{reverse:true});
-assert.ok(s.speed < 0, 'W/reverse must produce negative speed');
-s = { ...INITIAL_STATE, gear:'D' };
 for(let i=0;i<120;i++) s=stepVehicle(s,1/120,{forward:true});
-assert.ok(s.speed > 0, 'S/forward must produce positive speed');
+assert.ok(s.speed > 0, 'W/forward must produce positive speed');
+s = { ...INITIAL_STATE, gear:'R' };
+for(let i=0;i<120;i++) s=stepVehicle(s,1/120,{reverse:true});
+assert.ok(s.speed < 0, 'S/reverse must produce negative speed');
 
 s = { ...INITIAL_STATE, steer:0.4 };
 const held = stepVehicle(s,1/60,{}); near(held.steer,0.4,1e-12,'steering hold');
@@ -42,6 +47,16 @@ const centered = stepVehicle(s,1/60,{centerSteering:true}); near(centered.steer,
 
 let a = ackermannAngles(0.4); assert.ok(a.left>a.right && a.left>0 && a.right>0);
 a = ackermannAngles(-0.4); assert.ok(Math.abs(a.right)>Math.abs(a.left) && a.left<0 && a.right<0);
+
+let leftTurn={...INITIAL_STATE,rearX:0,rearZ:0,yaw:0,speed:1,steer:0.3,gear:'D'};
+leftTurn=integratePose(leftTurn,1,leftTurn.steer);
+assert.ok(frontDirection(leftTurn).x<0,'forward + left steer must point left');
+let rightTurn={...INITIAL_STATE,rearX:0,rearZ:0,yaw:0,speed:1,steer:-0.3,gear:'D'};
+rightTurn=integratePose(rightTurn,1,rightTurn.steer);
+assert.ok(frontDirection(rightTurn).x>0,'forward + right steer must point right');
+let reverseLeft={...INITIAL_STATE,rearX:0,rearZ:0,yaw:0,speed:-1,steer:0.3,gear:'R'};
+reverseLeft=integratePose(reverseLeft,-1,reverseLeft.steer);
+assert.ok(reverseLeft.yaw<0,'reverse + left steer must reverse yaw evolution naturally');
 
 const rl = localToWorld(-VEHICLE.trackWidth/2,0,{...INITIAL_STATE,rearX:0,rearZ:0,yaw:0});
 near(rl.x,-VEHICLE.trackWidth/2);
