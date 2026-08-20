@@ -1,0 +1,81 @@
+import assert from 'node:assert/strict';
+import {
+  VEHICLE, COURSE, INITIAL_STATE, cloneState, localToWorld, frontDirection,
+  integratePose, stepVehicle, ackermannAngles, bodyPolygon, lineViolation,
+  isFullyInsideBay, headingErrorToBay, predictionDirection, predictStates,
+  referenceTrajectory, polygonsOverlapSAT, rectPolygon,
+} from './physics.mjs';
+
+const near = (a,b,e=1e-8,msg='') => assert.ok(Math.abs(a-b) <= e, `${msg} expected ${b}, got ${a}`);
+const angleNear = (a,b,e=1e-8,msg='') => {
+  let d=a-b; while(d>Math.PI)d-=2*Math.PI; while(d<=-Math.PI)d+=2*Math.PI;
+  assert.ok(Math.abs(d)<=e, `${msg} expected ${b}, got ${a}`);
+};
+
+let s = { ...INITIAL_STATE, rearX:0, rearZ:0, yaw:0 };
+near(frontDirection(s).x, 0); near(frontDirection(s).z, -1);
+s.yaw = -Math.PI/2; near(frontDirection(s).x, 1); near(frontDirection(s).z, 0);
+
+s = { ...INITIAL_STATE, rearX:0,rearZ:0,yaw:0,steer:0 };
+let f = integratePose(s, 5, 0); near(f.rearX,0); near(f.rearZ,-5); angleNear(f.yaw,0);
+let r = integratePose(s,-5,0); near(r.rearX,0); near(r.rearZ,5); angleNear(r.yaw,0);
+
+const delta = 0.42, R = VEHICLE.wheelbase/Math.tan(delta), quarter = Math.PI/2*R;
+s = { ...INITIAL_STATE, rearX:0,rearZ:0,yaw:0,steer:delta };
+f = integratePose(s,quarter,delta);
+near(f.rearX,-R,1e-8,'quarter arc x'); near(f.rearZ,-R,1e-8,'quarter arc z'); angleNear(f.yaw,Math.PI/2,1e-8,'quarter arc yaw');
+
+s = { ...INITIAL_STATE, rearX:1.2,rearZ:-0.7,yaw:0.37,steer:-0.31 };
+f = integratePose(s,3.7,s.steer); r = integratePose(f,-3.7,s.steer);
+near(r.rearX,s.rearX,1e-8); near(r.rearZ,s.rearZ,1e-8); angleNear(r.yaw,s.yaw,1e-8);
+
+s = cloneState(INITIAL_STATE);
+for(let i=0;i<120;i++) s=stepVehicle(s,1/120,{reverse:true});
+assert.ok(s.speed < 0, 'W/reverse must produce negative speed');
+s = { ...INITIAL_STATE, gear:'D' };
+for(let i=0;i<120;i++) s=stepVehicle(s,1/120,{forward:true});
+assert.ok(s.speed > 0, 'S/forward must produce positive speed');
+
+s = { ...INITIAL_STATE, steer:0.4 };
+const held = stepVehicle(s,1/60,{}); near(held.steer,0.4,1e-12,'steering hold');
+const centered = stepVehicle(s,1/60,{centerSteering:true}); near(centered.steer,0,1e-12,'center steering');
+
+let a = ackermannAngles(0.4); assert.ok(a.left>a.right && a.left>0 && a.right>0);
+a = ackermannAngles(-0.4); assert.ok(Math.abs(a.right)>Math.abs(a.left) && a.left<0 && a.right<0);
+
+const rl = localToWorld(-VEHICLE.trackWidth/2,0,{...INITIAL_STATE,rearX:0,rearZ:0,yaw:0});
+near(rl.x,-VEHICLE.trackWidth/2);
+assert.ok(VEHICLE.trackWidth + VEHICLE.wheelWidth <= VEHICLE.width + 1e-9);
+
+const carBox = rectPolygon(0,0,VEHICLE.width,VEHICLE.length);
+const centerLine = rectPolygon(0,0,0.08,8);
+assert.equal(polygonsOverlapSAT(carBox,centerLine),true);
+
+s = { ...INITIAL_STATE, rearX:0,rearZ:-4.25,yaw:Math.PI,speed:0,steer:0 };
+assert.equal(lineViolation(s),false,'centered parked pose should not touch lines');
+assert.equal(isFullyInsideBay(s),true,'centered parked pose should be fully inside');
+assert.ok(headingErrorToBay(s)<1e-9);
+const crossed = { ...s, rearX:COURSE.bayWidth/2 };
+assert.equal(lineViolation(crossed),true,'vehicle crossing side line must be detected');
+
+assert.equal(predictionDirection({...INITIAL_STATE,speed:0,gear:'R'}),-1);
+assert.equal(predictionDirection({...INITIAL_STATE,speed:0,gear:'D'}),1);
+assert.equal(predictionDirection({...INITIAL_STATE,speed:-0.4,gear:'D'}),-1);
+const preds = predictStates({...INITIAL_STATE,speed:0,gear:'R',steer:0},{distance:1,samples:10});
+assert.ok(preds.at(-1).rearX < INITIAL_STATE.rearX,'initial reverse prediction should move west toward the bay');
+
+const ref = referenceTrajectory();
+assert.ok(ref.length>100);
+const end = {...ref.at(-1),speed:0};
+assert.equal(isFullyInsideBay(end),true,'reference end must be inside bay');
+assert.ok(headingErrorToBay(end)<1e-8,'reference end heading');
+for (const pose of ref) assert.equal(lineViolation(pose),false,'reference path must be line-safe');
+near(end.rearX,0,0.03,'reference centered x');
+near(end.rearZ,-4.30,0.05,'reference rear z');
+
+s={...INITIAL_STATE,rearX:0,rearZ:0,yaw:0};
+const poly=bodyPolygon(s);
+near(Math.abs(poly[1].x-poly[0].x),VEHICLE.width,1e-9);
+near(Math.abs(poly[2].z-poly[1].z),VEHICLE.length,1e-9);
+
+console.log('physics-tests: all assertions passed');
