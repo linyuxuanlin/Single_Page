@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
-import { INITIAL_STATE } from './physics.mjs';
-import { coachHint, innerRearWheelKey, predictedSweepSamples, predictLineRisk } from './coach.mjs';
+import { INITIAL_STATE, referenceTrajectory } from './physics.mjs';
+import {
+  coachHint,
+  innerRearWheelKey,
+  nearestReferencePose,
+  predictedSweepSamples,
+  predictLineRisk,
+  referenceDeviation,
+} from './coach.mjs';
 
 assert.equal(innerRearWheelKey(0.3), 'rl', 'left steer must make left rear wheel the inner wheel');
 assert.equal(innerRearWheelKey(-0.3), 'rr', 'right steer must make right rear wheel the inner wheel');
@@ -28,5 +35,42 @@ const turningSafe = { ...farSafe, steer: 0.2 };
 const turningHint = coachHint(turningSafe, { distance: 0.2, samples: 10 });
 assert.equal(turningHint.code, 'watch-inner-rear-wheel');
 assert.match(turningHint.text, /左后轮/);
+
+const ref = referenceTrajectory();
+const midIndex = Math.floor(ref.length * 0.55);
+const mid = ref[midIndex];
+const nearest = nearestReferencePose(mid, ref);
+assert.equal(nearest.index, midIndex, 'exact reference pose should match itself');
+assert.ok(nearest.distance < 1e-10);
+assert.ok(nearest.progress > 0.4 && nearest.progress < 0.7);
+
+const c = Math.cos(mid.yaw), si = Math.sin(mid.yaw);
+const shiftedRight = {
+  ...mid,
+  rearX: mid.rearX + 0.5 * c,
+  rearZ: mid.rearZ - 0.5 * si,
+  speed: 0,
+  gear: 'D',
+  steer: 0,
+};
+const rightDeviation = referenceDeviation(shiftedRight, ref);
+assert.ok(rightDeviation.lateral > 0.45, `expected positive/right lateral deviation, got ${rightDeviation.lateral}`);
+assert.ok(Math.abs(rightDeviation.headingErrorDeg) < 1e-8);
+const lateralHint = coachHint(shiftedRight, { distance: 0.1, samples: 5 });
+assert.equal(lateralHint.code, 'reference-lateral-deviation');
+assert.match(lateralHint.text, /偏右/);
+
+const headingOff = {
+  ...mid,
+  yaw: mid.yaw + 10 * Math.PI / 180,
+  speed: 0,
+  gear: 'D',
+  steer: 0,
+};
+const headingDeviation = referenceDeviation(headingOff, ref);
+assert.ok(Math.abs(headingDeviation.headingErrorDeg - 10) < 1e-8);
+const headingHint = coachHint(headingOff, { distance: 0.1, samples: 5 });
+assert.equal(headingHint.code, 'reference-heading-deviation');
+assert.match(headingHint.text, /10°/);
 
 console.log('coach-tests: all assertions passed');
