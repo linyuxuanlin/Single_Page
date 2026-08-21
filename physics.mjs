@@ -1,3 +1,5 @@
+import { resolveReplayStep } from './replay-runtime.mjs';
+
 export const VEHICLE = Object.freeze({
   length: 4.46,
   width: 1.78,
@@ -90,6 +92,9 @@ export function integratePose(s, distance, steer = s.steer) {
 }
 
 export function stepVehicle(s, dt, controls = {}) {
+  const replay = resolveReplayStep(s);
+  if (replay.handled) return replay.state;
+
   const next = { ...s };
   const left = Boolean(controls.left);
   const right = Boolean(controls.right);
