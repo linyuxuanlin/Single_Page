@@ -5,6 +5,7 @@ const LABELS=Object.freeze({'line-touch':'首次触线','max-lateral':'最大横
 const clamp01=v=>Math.max(0,Math.min(1,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
 const lerpAngle=(a,b,t)=>{let d=b-a;while(d>Math.PI)d-=Math.PI*2;while(d<=-Math.PI)d+=Math.PI*2;return a+d*t};
+const finite=(v,fallback=0)=>Number.isFinite(v)?v:fallback;
 
 export function buildReplayMarkers(session,{maxMarkers=10}={}){
   const events=extractTrainingEvents(session);
@@ -18,22 +19,33 @@ export function buildReplayModel(session,{maxPoints=180,maxMarkers=10}={}){
   const trajectory=buildReplayTrajectory(session,{maxPoints}),markers=buildReplayMarkers(session,{maxMarkers}),trajectoryIndices=new Set(trajectory.map(p=>p.index)),samples=session?.samples??[];
   for(const {index} of markers)if(!trajectoryIndices.has(index)&&samples[index])trajectory.push({...samples[index],index});
   trajectory.sort((a,b)=>a.index-b.index);
-  return {trajectory,markers,durationSec:samples.length?Math.max(0,samples.at(-1).t-samples[0].t):0};
+  const start=samples.length?finite(samples[0].t,0):0,end=samples.length?finite(samples.at(-1).t,start):start;
+  return {trajectory,markers,durationSec:Math.max(0,end-start)};
 }
 
 export function nearestReplayPoint(model,rearX,rearZ){const points=model?.trajectory??[];if(!points.length)return null;let best=points[0],bestD2=Infinity;for(const p of points){const dx=p.rearX-rearX,dz=p.rearZ-rearZ,d2=dx*dx+dz*dz;if(d2<bestD2){best=p;bestD2=d2}}return {...best,distance:Math.sqrt(bestD2)}}
 export function replayProgress(model,index){const points=model?.trajectory??[];if(!points.length)return 0;const first=points[0].index,last=points.at(-1).index;if(last<=first)return 0;return clamp01((index-first)/(last-first))}
 
-// Returns a smooth vehicle pose for a 0..1 replay scrubber. Time is used rather than
-// sample index so playback remains correct if browser sampling cadence was uneven.
+// Smooth 0..1 replay scrubber. Time rather than sample index keeps playback correct
+// when browser sampling cadence is uneven. Binary search avoids an O(n) scan per frame.
 export function replayPoseAtProgress(model,progress){
   const points=model?.trajectory??[];if(!points.length)return null;if(points.length===1)return {...points[0],progress:0};
-  const p=clamp01(Number.isFinite(progress)?progress:0),start=points[0].t??0,end=points.at(-1).t??start,target=start+(end-start)*p;
-  let hi=points.findIndex(x=>(x.t??0)>=target);if(hi<0)hi=points.length-1;if(hi===0)return {...points[0],progress:p};
-  const a=points[hi-1],b=points[hi],dt=(b.t??0)-(a.t??0),u=dt>1e-9?clamp01((target-(a.t??0))/dt):0;
+  const p=clamp01(Number.isFinite(progress)?progress:0),start=finite(points[0].t,0),end=finite(points.at(-1).t,start),target=start+(end-start)*p;
+  let lo=0,hi=points.length-1;
+  while(lo<hi){const mid=(lo+hi)>>1;if(finite(points[mid].t,start)<target)lo=mid+1;else hi=mid}
+  hi=lo;if(hi===0)return {...points[0],progress:p};
+  const a=points[hi-1],b=points[hi],ta=finite(a.t,start),tb=finite(b.t,ta),dt=tb-ta,u=dt>1e-9?clamp01((target-ta)/dt):0;
   return {rearX:lerp(a.rearX,b.rearX,u),rearZ:lerp(a.rearZ,b.rearZ,u),yaw:lerpAngle(a.yaw,b.yaw,u),speed:lerp(a.speed,b.speed,u),steer:lerp(a.steer,b.steer,u),t:target,gear:u<.5?a.gear:b.gear,index:lerp(a.index,b.index,u),progress:p};
 }
 
 export function replayMarkerProgress(model,marker){
-  const points=model?.trajectory??[];if(!points.length||!marker)return 0;const start=points[0].t??0,end=points.at(-1).t??start;if(end<=start)return 0;return clamp01(((marker.t??start)-start)/(end-start));
+  const points=model?.trajectory??[];if(!points.length||!marker)return 0;const start=finite(points[0].t,0),end=finite(points.at(-1).t,start);if(end<=start)return 0;return clamp01((finite(marker.t,start)-start)/(end-start));
+}
+
+// Precomputed timeline data for a lightweight UI slider. Consumers can render the
+// returned marker positions without re-running event extraction on every frame.
+export function buildReplayTimeline(model){
+  const durationSec=Math.max(0,finite(model?.durationSec,0));
+  const markers=(model?.markers??[]).map(marker=>({...marker,progress:replayMarkerProgress(model,marker)}));
+  return {durationSec,markers};
 }
