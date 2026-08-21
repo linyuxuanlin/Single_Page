@@ -52,12 +52,24 @@ Three.js 低速驾驶几何实验室。当前重点不是拟真动力学，而�
 - 使用 `localStorage` 保存个人最佳分数，刷新页面后仍可看到历史最好成绩。
 - `Esc` 关闭复盘，复盘卡内可直接“重新练习”。
 
+## v0.6 长期训练趋势
+
+`history.mjs` 已正式接入复盘页面：
+
+- 每次**有效练习**首次结算时写入本地历史，最多保留最近 30 次。
+- 同一练习反复打开复盘不会重复计入历史；空练习也不会污染趋势数据。
+- 复盘卡新增最近窗口均分、相对上一窗口的升降趋势、最近完成率和历史最佳分。
+- 基于近期表现自动给出一个最优先的长期训练重点，例如先稳定完成入库、减少触线、改善切入点或更早回正。
+- 历史数据使用 `localStorage` 持久化；损坏或无效数据会通过 `parseHistory()` 安全恢复为空历史。
+
 ## 验证
 
 ```bash
 node physics-tests.mjs
 node coach-tests.mjs
 node session-tests.mjs
+node replay-tests.mjs
+node history-tests.mjs
 ```
 
 `physics-tests.mjs` 覆盖：坐标方向、直行、理论圆弧半径、前后可逆、W/S/A/D 语义、方向保持与回正、Ackermann、轮距一致性、SAT 压线、入库姿态、预测方向，以及参考轨迹全程不触线并最终完整入库。
@@ -66,14 +78,16 @@ node session-tests.mjs
 
 `session-tests.mjs` 覆盖：成功练习高分、连续触线只计一次、离线后再次触线重新计数、方向左右反复修正计数、前后挡切换计数、严重偏差/高速/未完成练习的扣分，以及空会话的安全处理。
 
+`replay-tests.mjs` 覆盖：关键训练事件、回放轨迹关键点保留、时间轴进度、插值、播放器状态与异常采样时间处理。
+
+`history-tests.mjs` 覆盖：30 次滚动历史上限、最近窗口与上一窗口比较、完成率、最佳成绩、针对性训练建议，以及损坏本地数据的安全恢复。
+
 网页模块可单独做语法检查：
 
 ```bash
 # 将 index.html 内 type=module 脚本提取为 .mjs 后运行
 node --check app.mjs
 ```
-
-v0.5 页面集成在提交前执行过 `node --check`，未修改 `physics.mjs`、`coach.mjs` 或 `session.mjs` 的已有算法逻辑。
 
 ## 说明
 
