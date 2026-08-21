@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createTrainingSession,recordTrainingSample} from './session.mjs';
-import {buildReplayMarkers,buildReplayModel,nearestReplayPoint,replayProgress,replayPoseAtProgress,replayMarkerProgress} from './replay.mjs';
+import {buildReplayMarkers,buildReplayModel,nearestReplayPoint,replayProgress,replayPoseAtProgress,replayMarkerProgress,buildReplayTimeline} from './replay.mjs';
 
 const near=(a,b,e=1e-8)=>assert.ok(Math.abs(a-b)<=e,`expected ${b}, got ${a}`);
 const s=createTrainingSession({gear:'R'},0);
@@ -12,5 +12,7 @@ const tiny=buildReplayModel(s,{maxPoints:3,maxMarkers:8});for(const marker of ti
 const nearest=nearestReplayPoint(tiny,1.2,-.6);assert.ok(nearest);assert.ok(nearest.distance<.01);assert.equal(nearest.index,6);assert.equal(replayProgress(tiny,0),0);assert.equal(replayProgress(tiny,13),1);assert.equal(replayProgress({trajectory:[]},4),0);
 const mid=replayPoseAtProgress(tiny,.5);near(mid.t,6.5);near(mid.rearX,1.3);near(mid.rearZ,-.65);near(mid.progress,.5);near(replayPoseAtProgress(tiny,-1).t,0);near(replayPoseAtProgress(tiny,2).t,13);assert.equal(replayPoseAtProgress({trajectory:[]},.5),null);
 const touch=tiny.markers.find(m=>m.type==='line-touch');near(replayMarkerProgress(tiny,touch),7/13);near(replayMarkerProgress({trajectory:[]},touch),0);
+const timeline=buildReplayTimeline(tiny);assert.equal(timeline.durationSec,13);near(timeline.markers.find(m=>m.type==='line-touch').progress,7/13);assert.equal(buildReplayTimeline(null).durationSec,0);
 const wrap={trajectory:[{t:0,index:0,rearX:0,rearZ:0,yaw:Math.PI-0.1,speed:0,steer:0,gear:'R'},{t:2,index:1,rearX:2,rearZ:0,yaw:-Math.PI+0.1,speed:0,steer:0,gear:'R'}]};const wrapMid=replayPoseAtProgress(wrap,.5);assert.ok(Math.abs(Math.abs(wrapMid.yaw)-Math.PI)<1e-8,'yaw interpolation must take shortest arc');
+const uneven={trajectory:[{t:0,index:0,rearX:0,rearZ:0,yaw:0,speed:0,steer:0,gear:'R'},{t:.1,index:1,rearX:1,rearZ:0,yaw:0,speed:0,steer:0,gear:'R'},{t:10,index:2,rearX:2,rearZ:0,yaw:0,speed:0,steer:0,gear:'R'}]};near(replayPoseAtProgress(uneven,.5).rearX,1+(4.9/9.9));
 assert.deepEqual(buildReplayMarkers(createTrainingSession(),{}),[]);console.log('replay-tests: all assertions passed');
