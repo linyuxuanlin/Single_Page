@@ -15,11 +15,23 @@ export function buildReplayMarkers(session,{maxMarkers=10}={}){
   return [...bySample.values()].sort((a,b)=>(EVENT_PRIORITY[b.type]??0)-(EVENT_PRIORITY[a.type]??0)||a.index-b.index).slice(0,Math.max(0,Math.floor(maxMarkers))).sort((a,b)=>a.index-b.index).map(event=>({...event,label:LABELS[event.type]??event.type}));
 }
 
+function normalizeReplayTimes(points){
+  if(!points.length)return points;
+  let last=finite(points[0].t,0);
+  points[0]={...points[0],t:last};
+  for(let i=1;i<points.length;i++){
+    const raw=finite(points[i].t,last);
+    last=Math.max(last,raw);
+    points[i]={...points[i],t:last};
+  }
+  return points;
+}
+
 export function buildReplayModel(session,{maxPoints=180,maxMarkers=10}={}){
   const trajectory=buildReplayTrajectory(session,{maxPoints}),markers=buildReplayMarkers(session,{maxMarkers}),trajectoryIndices=new Set(trajectory.map(p=>p.index)),samples=session?.samples??[];
   for(const {index} of markers)if(!trajectoryIndices.has(index)&&samples[index])trajectory.push({...samples[index],index});
-  trajectory.sort((a,b)=>a.index-b.index);
-  const start=samples.length?finite(samples[0].t,0):0,end=samples.length?finite(samples.at(-1).t,start):start;
+  trajectory.sort((a,b)=>a.index-b.index);normalizeReplayTimes(trajectory);
+  const start=trajectory.length?trajectory[0].t:0,end=trajectory.length?trajectory.at(-1).t:start;
   return {trajectory,markers,durationSec:Math.max(0,end-start)};
 }
 
@@ -57,9 +69,6 @@ export function adjacentReplayMarker(model,progress,direction=1){
   for(let i=markers.length-1;i>=0;i--)if(markers[i].progress<p-epsilon)return markers[i];return markers[0];
 }
 
-// Pure playback state machine for UI integration. It deliberately accepts elapsed
-// seconds rather than reading performance.now(), making playback deterministic,
-// testable and safe when a browser tab resumes after being backgrounded.
 export function createReplayPlayback({progress=0,rate=1,playing=false}={}){
   return {progress:clamp01(finite(progress,0)),rate:Math.max(.1,Math.min(4,finite(rate,1))),playing:Boolean(playing)};
 }
