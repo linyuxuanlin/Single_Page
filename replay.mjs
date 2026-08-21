@@ -21,18 +21,10 @@ function fitReplayPointBudget(trajectory,markers,samples,maxPoints){
   let points=[...byIndex.values()].sort((a,b)=>a.index-b.index);if(points.length<=limit)return points;
   const first=points[0]?.index,last=points.at(-1)?.index,selected=new Map();
   const add=index=>{const p=byIndex.get(index);if(p&&selected.size<limit)selected.set(index,p)};
-  // Replay endpoints define duration and must never disappear. With a one-point budget prefer the start pose.
   add(first);if(limit>1)add(last);
   const rankedMarkers=[...markers].sort((a,b)=>(EVENT_PRIORITY[b.type]??0)-(EVENT_PRIORITY[a.type]??0)||a.index-b.index);
   for(const marker of rankedMarkers)add(marker.index);
-  if(selected.size<limit){
-    const remaining=points.filter(p=>!selected.has(p.index));
-    while(selected.size<limit&&remaining.length){
-      const chosen=[...selected.keys()].sort((a,b)=>a-b);let bestPos=0,bestGap=-1;
-      for(let i=0;i<remaining.length;i++){const idx=remaining[i].index;let gap=Infinity;for(const kept of chosen)gap=Math.min(gap,Math.abs(idx-kept));if(gap>bestGap){bestGap=gap;bestPos=i}}
-      const [p]=remaining.splice(bestPos,1);selected.set(p.index,p);
-    }
-  }
+  if(selected.size<limit){const remaining=points.filter(p=>!selected.has(p.index));while(selected.size<limit&&remaining.length){const chosen=[...selected.keys()].sort((a,b)=>a-b);let bestPos=0,bestGap=-1;for(let i=0;i<remaining.length;i++){const idx=remaining[i].index;let gap=Infinity;for(const kept of chosen)gap=Math.min(gap,Math.abs(idx-kept));if(gap>bestGap){bestGap=gap;bestPos=i}}const [p]=remaining.splice(bestPos,1);selected.set(p.index,p)}}
   return [...selected.values()].sort((a,b)=>a.index-b.index);
 }
 export function buildReplayModel(session,{maxPoints=180,maxMarkers=10}={}){const rawMarkers=buildReplayMarkers(session,{maxMarkers}),samples=session?.samples??[],trajectory=fitReplayPointBudget(buildReplayTrajectory(session,{maxPoints}),rawMarkers,samples,maxPoints);normalizeReplayTimes(trajectory);const normalizedTimeByIndex=new Map(trajectory.map(p=>[p.index,p.t]));const markers=rawMarkers.filter(marker=>normalizedTimeByIndex.has(marker.index)).map(marker=>({...marker,t:normalizedTimeByIndex.get(marker.index)}));const start=trajectory.length?trajectory[0].t:0,end=trajectory.length?trajectory.at(-1).t:start;return {trajectory,markers,durationSec:Math.max(0,end-start)}}
@@ -42,7 +34,7 @@ export function replayPoseAtProgress(model,progress){const points=model?.traject
 export function replayMarkerProgress(model,marker){const points=model?.trajectory??[];if(!points.length||!marker)return 0;const start=finite(points[0].t,0),end=finite(points.at(-1).t,start);if(end<=start)return 0;return clamp01((finite(marker.t,start)-start)/(end-start))}
 export function buildReplayTimeline(model){const durationSec=Math.max(0,finite(model?.durationSec,0));const markers=(model?.markers??[]).map((marker,index)=>({...marker,markerIndex:index,progress:replayMarkerProgress(model,marker)}));return {durationSec,markers}}
 export function replayMarkerAtProgress(model,progress,{tolerance=.025}={}){const timeline=buildReplayTimeline(model),p=clamp01(finite(progress,0)),tol=Math.max(0,finite(tolerance,.025));let best=null,bestDistance=Infinity;for(const marker of timeline.markers){const distance=Math.abs(marker.progress-p);if(distance<bestDistance){best=marker;bestDistance=distance}}return best&&bestDistance<=tol?{...best,distanceFromProgress:bestDistance}:null}
-export function adjacentReplayMarker(model,progress,direction=1){const markers=buildReplayTimeline(model).markers;if(!markers.length)return null;const p=clamp01(finite(progress,0)),dir=direction<0?-1:1,epsilon=1e-6;if(dir>0)return markers.find(m=>m.progress>p+epsilon)??markers.at(-1);for(let i=markers.length-1;i>=0;i--)if(markers[i].progress<p-epsilon)return markers[i];return markers[0]}
+export function adjacentReplayMarker(model,progress,direction=1){const markers=buildReplayTimeline(model).markers;if(!markers.length)return null;const p=clamp01(finite(progress,0)),dir=direction<0?-1:1,epsilon=1e-6;if(dir>0)return markers.find(m=>m.progress>p+epsilon)??null;for(let i=markers.length-1;i>=0;i--)if(markers[i].progress<p-epsilon)return markers[i];return null}
 export function createReplayPlayback({progress=0,rate=1,playing=false}={}){return {progress:clamp01(finite(progress,0)),rate:Math.max(.1,Math.min(4,finite(rate,1))),playing:Boolean(playing)}}
 export function seekReplay(playback,progress){return {...createReplayPlayback(playback),progress:clamp01(finite(progress,0))}}
 export function seekReplayMarker(playback,model,marker){return marker?seekReplay(playback,replayMarkerProgress(model,marker)):createReplayPlayback(playback)}
