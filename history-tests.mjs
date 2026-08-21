@@ -1,0 +1,9 @@
+import assert from 'node:assert/strict';
+import {historyEntry,appendHistory,trainingTrend,progressAdvice,serializeHistory,parseHistory} from './history.mjs';
+const s=(score,completed=true,extra={})=>({score,grade:'测试',completed,durationSec:20,distanceM:8,maxLateralM:.2,maxHeadingErrorDeg:5,maxSpeedKmh:4,lineTouchEvents:0,steeringDirectionChanges:2,gearChanges:0,...extra});
+let e=historyEntry(s(91),{at:123});assert.equal(e.score,91);assert.equal(e.at,123);assert.equal(e.completed,true);
+let h=[];for(let i=0;i<35;i++)h=appendHistory(h,s(60+i),{at:i,limit:30});assert.equal(h.length,30);assert.equal(h[0].at,5);assert.equal(h.at(-1).score,94);
+h=[s(60),s(62),s(64),s(80),s(82),s(84)].map((x,i)=>historyEntry(x,{at:i}));let t=trainingTrend(h,{window:3});assert.equal(t.attempts,6);assert.equal(t.bestScore,84);assert.equal(t.recentScore,82);assert.equal(t.scoreDelta,20);assert.equal(t.completionRate,1);
+h=[s(80,false,{lineTouchEvents:1,maxLateralM:.6,maxHeadingErrorDeg:15}),s(82,false,{lineTouchEvents:1,maxLateralM:.5,maxHeadingErrorDeg:14}),s(84,true,{lineTouchEvents:0,maxLateralM:.5,maxHeadingErrorDeg:13})].map((x,i)=>historyEntry(x,{at:i}));const advice=progressAdvice(h).join(' ');assert.match(advice,/完成率/);assert.match(advice,/触线/);assert.match(advice,/横向偏差/);assert.match(advice,/角度误差/);
+const raw=serializeHistory(h),round=parseHistory(raw);assert.equal(round.length,3);assert.equal(round[1].score,82);assert.deepEqual(parseHistory('broken'),[]);
+console.log('history-tests: all assertions passed');
