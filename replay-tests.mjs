@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createTrainingSession,recordTrainingSample} from './session.mjs';
-import {buildReplayMarkers,buildReplayModel,nearestReplayPoint,replayProgress,replayPoseAtProgress,replayMarkerProgress,buildReplayTimeline} from './replay.mjs';
+import {buildReplayMarkers,buildReplayModel,nearestReplayPoint,replayProgress,replayPoseAtProgress,replayMarkerProgress,buildReplayTimeline,createReplayPlayback,seekReplay,setReplayRate,setReplayPlaying,advanceReplay} from './replay.mjs';
 
 const near=(a,b,e=1e-8)=>assert.ok(Math.abs(a-b)<=e,`expected ${b}, got ${a}`);
 const s=createTrainingSession({gear:'R'},0);
@@ -15,4 +15,5 @@ const touch=tiny.markers.find(m=>m.type==='line-touch');near(replayMarkerProgres
 const timeline=buildReplayTimeline(tiny);assert.equal(timeline.durationSec,13);near(timeline.markers.find(m=>m.type==='line-touch').progress,7/13);assert.equal(buildReplayTimeline(null).durationSec,0);
 const wrap={trajectory:[{t:0,index:0,rearX:0,rearZ:0,yaw:Math.PI-0.1,speed:0,steer:0,gear:'R'},{t:2,index:1,rearX:2,rearZ:0,yaw:-Math.PI+0.1,speed:0,steer:0,gear:'R'}]};const wrapMid=replayPoseAtProgress(wrap,.5);assert.ok(Math.abs(Math.abs(wrapMid.yaw)-Math.PI)<1e-8,'yaw interpolation must take shortest arc');
 const uneven={trajectory:[{t:0,index:0,rearX:0,rearZ:0,yaw:0,speed:0,steer:0,gear:'R'},{t:.1,index:1,rearX:1,rearZ:0,yaw:0,speed:0,steer:0,gear:'R'},{t:10,index:2,rearX:2,rearZ:0,yaw:0,speed:0,steer:0,gear:'R'}]};near(replayPoseAtProgress(uneven,.5).rearX,1+(4.9/9.9));
+let play=createReplayPlayback({progress:-2,rate:99,playing:true});near(play.progress,0);near(play.rate,4);assert.equal(play.playing,true);play=setReplayRate(play,2);near(play.rate,2);play=seekReplay(play,.25);near(play.progress,.25);play=setReplayPlaying(play,true);play=advanceReplay(play,{durationSec:10},1);near(play.progress,.3);assert.equal(play.playing,true);play=advanceReplay(play,{durationSec:10},100);near(play.progress,.35);assert.equal(play.playing,true);play=seekReplay(play,.99);play=advanceReplay(play,{durationSec:10},.25);near(play.progress,1);assert.equal(play.playing,false);assert.equal(setReplayPlaying(play,true).playing,false);near(advanceReplay(createReplayPlayback({playing:true}),{durationSec:0},1).progress,0);
 assert.deepEqual(buildReplayMarkers(createTrainingSession(),{}),[]);console.log('replay-tests: all assertions passed');
