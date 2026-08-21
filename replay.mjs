@@ -26,8 +26,6 @@ export function buildReplayModel(session,{maxPoints=180,maxMarkers=10}={}){
 export function nearestReplayPoint(model,rearX,rearZ){const points=model?.trajectory??[];if(!points.length)return null;let best=points[0],bestD2=Infinity;for(const p of points){const dx=p.rearX-rearX,dz=p.rearZ-rearZ,d2=dx*dx+dz*dz;if(d2<bestD2){best=p;bestD2=d2}}return {...best,distance:Math.sqrt(bestD2)}}
 export function replayProgress(model,index){const points=model?.trajectory??[];if(!points.length)return 0;const first=points[0].index,last=points.at(-1).index;if(last<=first)return 0;return clamp01((index-first)/(last-first))}
 
-// Smooth 0..1 replay scrubber. Time rather than sample index keeps playback correct
-// when browser sampling cadence is uneven. Binary search avoids an O(n) scan per frame.
 export function replayPoseAtProgress(model,progress){
   const points=model?.trajectory??[];if(!points.length)return null;if(points.length===1)return {...points[0],progress:0};
   const p=clamp01(Number.isFinite(progress)?progress:0),start=finite(points[0].t,0),end=finite(points.at(-1).t,start),target=start+(end-start)*p;
@@ -42,10 +40,25 @@ export function replayMarkerProgress(model,marker){
   const points=model?.trajectory??[];if(!points.length||!marker)return 0;const start=finite(points[0].t,0),end=finite(points.at(-1).t,start);if(end<=start)return 0;return clamp01((finite(marker.t,start)-start)/(end-start));
 }
 
-// Precomputed timeline data for a lightweight UI slider. Consumers can render the
-// returned marker positions without re-running event extraction on every frame.
 export function buildReplayTimeline(model){
   const durationSec=Math.max(0,finite(model?.durationSec,0));
   const markers=(model?.markers??[]).map(marker=>({...marker,progress:replayMarkerProgress(model,marker)}));
   return {durationSec,markers};
+}
+
+// Pure playback state machine for UI integration. It deliberately accepts elapsed
+// seconds rather than reading performance.now(), making playback deterministic,
+// testable and safe when a browser tab resumes after being backgrounded.
+export function createReplayPlayback({progress=0,rate=1,playing=false}={}){
+  return {progress:clamp01(finite(progress,0)),rate:Math.max(.1,Math.min(4,finite(rate,1))),playing:Boolean(playing)};
+}
+export function seekReplay(playback,progress){return {...createReplayPlayback(playback),progress:clamp01(finite(progress,0))}}
+export function setReplayRate(playback,rate){return {...createReplayPlayback(playback),rate:Math.max(.1,Math.min(4,finite(rate,1)))}}
+export function setReplayPlaying(playback,playing){const next=createReplayPlayback(playback);return {...next,playing:Boolean(playing)&&next.progress<1}}
+export function advanceReplay(playback,model,elapsedSec){
+  const next=createReplayPlayback(playback),duration=Math.max(0,finite(model?.durationSec,0)),dt=Math.max(0,Math.min(.25,finite(elapsedSec,0)));
+  if(!next.playing||duration<=1e-9||dt===0)return next;
+  next.progress=clamp01(next.progress+dt*next.rate/duration);
+  if(next.progress>=1)next.playing=false;
+  return next;
 }
