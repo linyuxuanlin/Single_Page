@@ -19,9 +19,21 @@ function fitReplayPointBudget(trajectory,markers,samples,maxPoints){
   const limit=Math.max(0,Math.floor(maxPoints));if(limit===0)return[];
   const byIndex=new Map(trajectory.map(p=>[p.index,p]));for(const marker of markers)if(samples[marker.index])byIndex.set(marker.index,{...samples[marker.index],index:marker.index});
   let points=[...byIndex.values()].sort((a,b)=>a.index-b.index);if(points.length<=limit)return points;
-  const priorityByIndex=new Map(markers.map(m=>[m.index,EVENT_PRIORITY[m.type]??0])),first=points[0]?.index,last=points.at(-1)?.index;
-  const ranked=points.map(p=>({p,priority:Math.max(priorityByIndex.get(p.index)??0,p.index===first||p.index===last?95:0)})).sort((a,b)=>b.priority-a.priority||a.p.index-b.p.index).slice(0,limit).map(x=>x.p).sort((a,b)=>a.index-b.index);
-  return ranked;
+  const first=points[0]?.index,last=points.at(-1)?.index,selected=new Map();
+  const add=index=>{const p=byIndex.get(index);if(p&&selected.size<limit)selected.set(index,p)};
+  // Replay endpoints define duration and must never disappear. With a one-point budget prefer the start pose.
+  add(first);if(limit>1)add(last);
+  const rankedMarkers=[...markers].sort((a,b)=>(EVENT_PRIORITY[b.type]??0)-(EVENT_PRIORITY[a.type]??0)||a.index-b.index);
+  for(const marker of rankedMarkers)add(marker.index);
+  if(selected.size<limit){
+    const remaining=points.filter(p=>!selected.has(p.index));
+    while(selected.size<limit&&remaining.length){
+      const chosen=[...selected.keys()].sort((a,b)=>a-b);let bestPos=0,bestGap=-1;
+      for(let i=0;i<remaining.length;i++){const idx=remaining[i].index;let gap=Infinity;for(const kept of chosen)gap=Math.min(gap,Math.abs(idx-kept));if(gap>bestGap){bestGap=gap;bestPos=i}}
+      const [p]=remaining.splice(bestPos,1);selected.set(p.index,p);
+    }
+  }
+  return [...selected.values()].sort((a,b)=>a.index-b.index);
 }
 export function buildReplayModel(session,{maxPoints=180,maxMarkers=10}={}){const rawMarkers=buildReplayMarkers(session,{maxMarkers}),samples=session?.samples??[],trajectory=fitReplayPointBudget(buildReplayTrajectory(session,{maxPoints}),rawMarkers,samples,maxPoints);normalizeReplayTimes(trajectory);const normalizedTimeByIndex=new Map(trajectory.map(p=>[p.index,p.t]));const markers=rawMarkers.filter(marker=>normalizedTimeByIndex.has(marker.index)).map(marker=>({...marker,t:normalizedTimeByIndex.get(marker.index)}));const start=trajectory.length?trajectory[0].t:0,end=trajectory.length?trajectory.at(-1).t:start;return {trajectory,markers,durationSec:Math.max(0,end-start)}}
 export function nearestReplayPoint(model,rearX,rearZ){const points=model?.trajectory??[];if(!points.length)return null;let best=points[0],bestD2=Infinity;for(const p of points){const dx=p.rearX-rearX,dz=p.rearZ-rearZ,d2=dx*dx+dz*dz;if(d2<bestD2){best=p;bestD2=d2}}return {...best,distance:Math.sqrt(bestD2)}}
