@@ -1,11 +1,27 @@
-import { isReplayModeActive } from './replay-runtime.mjs';
+import { isReplayModeActive, getReplayPausedMs } from './replay-runtime.mjs';
 
 const exposeSession=session=>{if(typeof window!=='undefined')window.__drivingLabSession=session;return session};
 export function createTrainingSession(startState = {}, startedAt = 0) {
-  return exposeSession({startedAt,samples:[],lastLineTouch:false,lineTouchEvents:0,steeringDirectionChanges:0,lastSteerSign:0,gearChanges:0,lastGear:startState.gear??null,completed:false});
+  return exposeSession({startedAt,samples:[],lastLineTouch:false,lineTouchEvents:0,steeringDirectionChanges:0,lastSteerSign:0,gearChanges:0,lastGear:startState.gear??null,completed:false,replayPauseBaselineMs:getReplayPausedMs(),elapsedSec:0});
 }
 const signWithDeadzone=(v,d=.04)=>v>d?1:v<-d?-1:0;
-export function recordTrainingSample(session,sample){if(isReplayModeActive())return exposeSession(session);const s=session,state=sample.state??{},deviation=sample.deviation??{},lineTouch=Boolean(sample.lineTouch),steerSign=signWithDeadzone(state.steer??0);if(lineTouch&&!s.lastLineTouch)s.lineTouchEvents++;s.lastLineTouch=lineTouch;if(steerSign&&s.lastSteerSign&&steerSign!==s.lastSteerSign)s.steeringDirectionChanges++;if(steerSign)s.lastSteerSign=steerSign;if(state.gear&&s.lastGear&&state.gear!==s.lastGear)s.gearChanges++;if(state.gear)s.lastGear=state.gear;if(sample.parkingSuccess)s.completed=true;s.samples.push({t:Number.isFinite(sample.t)?sample.t:0,rearX:state.rearX??0,rearZ:state.rearZ??0,yaw:state.yaw??0,speed:state.speed??0,steer:state.steer??0,gear:state.gear??null,lateral:deviation.lateral??0,headingErrorDeg:deviation.headingErrorDeg??0,lineTouch,parkingSuccess:Boolean(sample.parkingSuccess),coachCode:sample.coachCode??null});return exposeSession(s);}
+export function recordTrainingSample(session,sample){
+  if(isReplayModeActive())return exposeSession(session);
+  const s=session,state=sample.state??{},deviation=sample.deviation??{},lineTouch=Boolean(sample.lineTouch),steerSign=signWithDeadzone(state.steer??0);
+  if(lineTouch&&!s.lastLineTouch)s.lineTouchEvents++;s.lastLineTouch=lineTouch;
+  if(steerSign&&s.lastSteerSign&&steerSign!==s.lastSteerSign)s.steeringDirectionChanges++;
+  if(steerSign)s.lastSteerSign=steerSign;
+  if(state.gear&&s.lastGear&&state.gear!==s.lastGear)s.gearChanges++;
+  if(state.gear)s.lastGear=state.gear;
+  if(sample.parkingSuccess)s.completed=true;
+  const rawT=Number.isFinite(sample.t)?sample.t:0;
+  const pausedSec=Math.max(0,getReplayPausedMs()-(s.replayPauseBaselineMs??0))/1000;
+  const previousT=s.samples.at(-1)?.t??0;
+  const t=Math.max(previousT,rawT-pausedSec);
+  s.elapsedSec=t;
+  s.samples.push({t,rearX:state.rearX??0,rearZ:state.rearZ??0,yaw:state.yaw??0,speed:state.speed??0,steer:state.steer??0,gear:state.gear??null,lateral:deviation.lateral??0,headingErrorDeg:deviation.headingErrorDeg??0,lineTouch,parkingSuccess:Boolean(sample.parkingSuccess),coachCode:sample.coachCode??null});
+  return exposeSession(s);
+}
 
 export function extractTrainingEvents(session){
   const samples=session?.samples??[];
