@@ -42,8 +42,19 @@ export function replayMarkerProgress(model,marker){
 
 export function buildReplayTimeline(model){
   const durationSec=Math.max(0,finite(model?.durationSec,0));
-  const markers=(model?.markers??[]).map(marker=>({...marker,progress:replayMarkerProgress(model,marker)}));
+  const markers=(model?.markers??[]).map((marker,index)=>({...marker,markerIndex:index,progress:replayMarkerProgress(model,marker)}));
   return {durationSec,markers};
+}
+
+export function replayMarkerAtProgress(model,progress,{tolerance=.025}={}){
+  const timeline=buildReplayTimeline(model),p=clamp01(finite(progress,0)),tol=Math.max(0,finite(tolerance,.025));let best=null,bestDistance=Infinity;
+  for(const marker of timeline.markers){const distance=Math.abs(marker.progress-p);if(distance<bestDistance){best=marker;bestDistance=distance}}
+  return best&&bestDistance<=tol?{...best,distanceFromProgress:bestDistance}:null;
+}
+export function adjacentReplayMarker(model,progress,direction=1){
+  const markers=buildReplayTimeline(model).markers;if(!markers.length)return null;const p=clamp01(finite(progress,0)),dir=direction<0?-1:1,epsilon=1e-6;
+  if(dir>0)return markers.find(m=>m.progress>p+epsilon)??markers.at(-1);
+  for(let i=markers.length-1;i>=0;i--)if(markers[i].progress<p-epsilon)return markers[i];return markers[0];
 }
 
 // Pure playback state machine for UI integration. It deliberately accepts elapsed
