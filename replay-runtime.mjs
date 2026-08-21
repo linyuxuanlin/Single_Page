@@ -1,17 +1,23 @@
 let active=false;
 let replayPose=null;
 let frozenLiveState=null;
+let replayStartedMs=null;
+let totalPausedMs=0;
 
 const finite=(v,f=0)=>Number.isFinite(v)?v:f;
 const cloneState=s=>s&&typeof s==='object'?{...s}:{};
+const nowMs=()=>typeof performance!=='undefined'&&typeof performance.now==='function'?performance.now():0;
 
-export function enterReplayMode(){
-  active=true;
+export function enterReplayMode(atMs=nowMs()){
+  if(!active){
+    active=true;
+    replayStartedMs=finite(atMs,nowMs());
+  }
   replayPose=null;
 }
 
 export function setReplayPose(pose){
-  if(!active)active=true;
+  if(!active)enterReplayMode();
   if(!pose){replayPose=null;return;}
   replayPose={
     rearX:finite(pose.rearX),
@@ -22,8 +28,18 @@ export function setReplayPose(pose){
   };
 }
 
-export function exitReplayMode({restore=true}={}){
+export function getReplayPausedMs(atMs=nowMs()){
+  const now=finite(atMs,nowMs());
+  const current=active&&replayStartedMs!==null?Math.max(0,now-replayStartedMs):0;
+  return totalPausedMs+current;
+}
+
+export function exitReplayMode({restore=true,atMs=nowMs()}={}){
+  if(active&&replayStartedMs!==null){
+    totalPausedMs+=Math.max(0,finite(atMs,nowMs())-replayStartedMs);
+  }
   active=false;
+  replayStartedMs=null;
   replayPose=null;
   if(!restore)frozenLiveState=null;
 }
@@ -57,4 +73,6 @@ export function resetReplayRuntime(){
   active=false;
   replayPose=null;
   frozenLiveState=null;
+  replayStartedMs=null;
+  totalPausedMs=0;
 }
