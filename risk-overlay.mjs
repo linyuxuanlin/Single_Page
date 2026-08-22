@@ -12,7 +12,12 @@ export function normalizeRiskLines(lines = []) {
   return result;
 }
 
-export function riskVisualState(risk = {}) {
+function sameLines(a = [], b = []) {
+  if (a.length !== b.length) return false;
+  return a.every((line, index) => line === b[index]);
+}
+
+function baseRiskVisualState(risk = {}) {
   const lines = normalizeRiskLines(risk.hitLines);
   const distance = Number.isFinite(risk.distanceAhead) ? Math.max(0, risk.distanceAhead) : null;
   const touching = Boolean(risk.alreadyTouching);
@@ -30,6 +35,24 @@ export function riskVisualState(risk = {}) {
     return { active: true, level: 'warn', lines, distanceAhead: distance, pulseSec: 1.15, opacity: 0.72 };
   }
   return { active: true, level: 'caution', lines, distanceAhead: distance, pulseSec: 1.45, opacity: 0.5 };
+}
+
+/**
+ * Keep severity stable around the 0.8 m / 2.0 m boundaries.
+ * Escalation is immediate; downgrade needs a little extra clearance.
+ */
+export function riskVisualState(risk = {}, previous = null) {
+  const next = baseRiskVisualState(risk);
+  if (!previous?.active || !next.active || !sameLines(previous.lines, next.lines)) return next;
+  if (!Number.isFinite(next.distanceAhead)) return next;
+
+  if (previous.level === 'danger' && next.level === 'warn' && next.distanceAhead <= 0.95) {
+    return { ...next, level: 'danger', pulseSec: 0.88, opacity: 0.88 };
+  }
+  if (previous.level === 'warn' && next.level === 'caution' && next.distanceAhead <= 2.2) {
+    return { ...next, level: 'warn', pulseSec: 1.15, opacity: 0.72 };
+  }
+  return next;
 }
 
 export function riskLineText(line, visual = {}) {
@@ -50,6 +73,7 @@ export function riskSummaryText(visual = {}) {
 }
 
 let installed = false;
+let previousPublishedVisual = null;
 function ensureOverlay() {
   if (typeof document === 'undefined') return null;
   let root = document.querySelector('#line-risk-overlay');
@@ -86,8 +110,13 @@ function ensureOverlay() {
   return root;
 }
 
+export function resetRiskOverlayState() {
+  previousPublishedVisual = null;
+}
+
 export function publishRiskOverlay(risk) {
-  const visual = riskVisualState(risk);
+  const visual = riskVisualState(risk, previousPublishedVisual);
+  previousPublishedVisual = visual;
   const root = ensureOverlay();
   if (!root) return visual;
   root.dataset.level = visual.level;
