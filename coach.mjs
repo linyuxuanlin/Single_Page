@@ -1,12 +1,12 @@
 import {
   bodyPolygon,
-  integratePose,
   lineCollisionDetails,
   predictStates,
   predictionDirection,
   referenceTrajectory,
   normalizeAngle,
 } from './physics.mjs';
+import { sweptLineCollision } from './swept-collision.mjs';
 import { publishRiskOverlay } from './risk-overlay.mjs';
 
 /** Teaching/analysis helpers layered on top of the stable vehicle physics. */
@@ -32,23 +32,6 @@ function collisionNames(state) {
   return lineCollisionDetails(state).hits.map(hit => hit.name);
 }
 
-/** Refine the first collision inside a coarse prediction step with bisection. */
-function refineFirstTouch(fromState, signedStepDistance, iterations = 10) {
-  let clearDistance = 0;
-  let hitDistance = signedStepDistance;
-  let hitState = integratePose(fromState, hitDistance, fromState.steer);
-  if (!collisionNames(hitState).length) return null;
-  for (let i = 0; i < iterations; i++) {
-    const mid = (clearDistance + hitDistance) / 2;
-    const midState = integratePose(fromState, mid, fromState.steer);
-    if (collisionNames(midState).length) {
-      hitDistance = mid;
-      hitState = midState;
-    } else clearDistance = mid;
-  }
-  return { state: hitState, distance: Math.abs(hitDistance), hitLines: collisionNames(hitState) };
-}
-
 export function predictLineRisk(state, options = {}) {
   const { distance, samples } = predictionOptions(options);
   const direction = predictionDirection(state);
@@ -58,26 +41,27 @@ export function predictLineRisk(state, options = {}) {
   const stepDistance = distance / samples;
   let predictedTouchIndex = -1;
   let predictedHits = [];
-  for (let i = 0; i < poses.length; i++) {
-    const hits = collisionNames(poses[i]);
-    if (hits.length) { predictedTouchIndex = i; predictedHits = hits; break; }
-  }
-
   let firstTouchState = null;
   let distanceAhead = null;
+
   if (alreadyTouching) {
     firstTouchState = state;
     distanceAhead = 0;
-  } else if (predictedTouchIndex !== -1) {
-    const segmentStart = predictedTouchIndex === 0 ? state : poses[predictedTouchIndex - 1];
-    const refined = refineFirstTouch(segmentStart, direction * stepDistance);
-    if (refined) {
-      firstTouchState = refined.state;
-      predictedHits = refined.hitLines;
-      distanceAhead = predictedTouchIndex * stepDistance + refined.distance;
-    } else {
-      firstTouchState = poses[predictedTouchIndex];
-      distanceAhead = (predictedTouchIndex + 1) * stepDistance;
+  } else {
+    // Check the whole travelled interval between coarse prediction poses. This
+    // prevents low sample counts from tunnelling completely across an 8 cm
+    // parking line when both segment endpoints happen to be clear.
+    let segmentStart = state;
+    for (let i = 0; i < poses.length; i++) {
+      const swept = sweptLineCollision(segmentStart, direction * stepDistance);
+      if (swept.touching) {
+        predictedTouchIndex = i;
+        firstTouchState = swept.state;
+        predictedHits = swept.hits.map(hit => hit.name);
+        distanceAhead = i * stepDistance + swept.distance;
+        break;
+      }
+      segmentStart = poses[i];
     }
   }
 
