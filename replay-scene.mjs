@@ -3,6 +3,7 @@ import { replayPoseAtProgress, replayMarkerAtProgress } from './replay.mjs';
 import { replayHighlightState, replayHighlightStyle } from './replay-highlight.mjs';
 
 const finite=(v,f=0)=>Number.isFinite(v)?v:f;
+const copyPoint=p=>({x:finite(p?.x),z:finite(p?.z)});
 
 /** Convert a replay position into the same geometry the live Three.js scene uses. */
 export function replaySceneSnapshot(model,progress,{markerTolerance=.018}={}){
@@ -14,11 +15,19 @@ export function replaySceneSnapshot(model,progress,{markerTolerance=.018}={}){
   return {progress:Math.max(0,Math.min(1,finite(progress))),pose:state,body:bodyPolygon(state),wheels:wheelPoints(state),marker,collision,sourceIndex:finite(pose.index),t:finite(pose.t)};
 }
 
-/** Create a small, stable event payload for browser CustomEvent / Three.js highlighting. */
+/** Create a compact browser event payload, including exact geometry needed by replay visualizations. */
 export function replaySceneEventDetail(model,progress,options){
   const snapshot=replaySceneSnapshot(model,progress,options);
   if(!snapshot)return null;
-  const base={progress:snapshot.progress,pose:{...snapshot.pose},marker:snapshot.marker?{type:snapshot.marker.type,label:snapshot.marker.label,index:snapshot.marker.index,progress:snapshot.marker.progress}:null,collision:{touching:snapshot.collision.touching,lines:snapshot.collision.hits.map(h=>h.name)},t:snapshot.t};
+  const collisionHits=snapshot.collision.hits.map(h=>({name:h.name,polygon:h.polygon.map(copyPoint)}));
+  const base={
+    progress:snapshot.progress,
+    pose:{...snapshot.pose},
+    body:snapshot.body.map(copyPoint),
+    marker:snapshot.marker?{type:snapshot.marker.type,label:snapshot.marker.label,index:snapshot.marker.index,progress:snapshot.marker.progress}:null,
+    collision:{touching:snapshot.collision.touching,lines:collisionHits.map(h=>h.name),hits:collisionHits},
+    t:snapshot.t,
+  };
   const highlight=replayHighlightState(base);
   return {...base,highlight:{...highlight,style:replayHighlightStyle(highlight)}};
 }
