@@ -29,20 +29,13 @@ export const COURSE_LINE_NAMES=Object.freeze(['left','right','back']);
 export function lineCollisionDetails(s){const car=bodyPolygon(s),hits=[];for(let i=0;i<LINE_POLYS.length;i++)if(polygonsOverlapSAT(car,LINE_POLYS[i]))hits.push({index:i,name:COURSE_LINE_NAMES[i],polygon:LINE_POLYS[i].map(p=>({...p}))});return{touching:hits.length>0,hits}}
 export function lineViolation(s){return lineCollisionDetails(s).touching}
 /** Signed distance from the car body to each parking-bay line's inner edge. Positive means clear, 0 means tangent, negative means crossing the line. */
-export function bayClearances(s){
-  const poly=bodyPolygon(s),xs=poly.map(p=>p.x),zs=poly.map(p=>p.z);
-  const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs);
-  const leftEdge=-COURSE.bayWidth/2+COURSE.lineWidth/2;
-  const rightEdge=COURSE.bayWidth/2-COURSE.lineWidth/2;
-  const backEdge=COURSE.backZ+COURSE.lineWidth/2;
-  const left=minX-leftEdge,right=rightEdge-maxX,back=minZ-backEdge;
-  return{left,right,back,minSide:Math.min(left,right),sideImbalance:left-right,min:Math.min(left,right,back)};
-}
+export function bayClearances(s){const poly=bodyPolygon(s),xs=poly.map(p=>p.x),zs=poly.map(p=>p.z),minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),leftEdge=-COURSE.bayWidth/2+COURSE.lineWidth/2,rightEdge=COURSE.bayWidth/2-COURSE.lineWidth/2,backEdge=COURSE.backZ+COURSE.lineWidth/2,left=minX-leftEdge,right=rightEdge-maxX,back=minZ-backEdge;return{left,right,back,minSide:Math.min(left,right),sideImbalance:left-right,min:Math.min(left,right,back)}}
 export function isFullyInsideBay(s,margin=0){const l=-COURSE.bayWidth/2+COURSE.lineWidth/2+margin,r=COURSE.bayWidth/2-COURSE.lineWidth/2-margin,f=COURSE.openingZ-COURSE.lineWidth/2-margin,b=COURSE.backZ+COURSE.lineWidth/2+margin;return bodyPolygon(s).every(p=>p.x>l&&p.x<r&&p.z<f&&p.z>b)}
 export function headingErrorToBay(s){return Math.abs(normalizeAngle(s?.yaw-Math.PI))}
 /** Completion requires the vehicle to be essentially stopped, not merely creeping through a valid pose. */
 export function parkingSuccess(s){return isFullyInsideBay(s,.015)&&headingErrorToBay(s)<5*Math.PI/180&&Math.abs(finite(s?.speed))<=PARKING_STOP_SPEED}
-export function predictionDirection(s){const speed=finite(s?.speed);if(Math.abs(speed)>.05)return Math.sign(speed);return s?.gear==='D'?1:-1}
+/** Prediction follows actual residual motion until the car is effectively stopped; gear is only a fallback at rest. */
+export function predictionDirection(s){const speed=finite(s?.speed);if(Math.abs(speed)>1e-4)return Math.sign(speed);return s?.gear==='D'?1:-1}
 /** Deterministic trajectory prediction with bounded, finite inputs. */
 export function predictStates(s,{distance=4.2,samples=80}={}){const safeDistance=Number.isFinite(distance)?Math.max(0,distance):0;const safeSamples=Number.isFinite(samples)?Math.max(1,Math.min(2000,Math.floor(samples))):80;const dir=predictionDirection(s),stepDistance=dir*safeDistance/safeSamples,states=[];let sim=integratePose(s,0,s?.steer);for(let i=0;i<safeSamples;i++){sim=integratePose(sim,stepDistance,sim.steer);states.push(sim)}return states}
 export function referenceTrajectory(){let s=cloneState(INITIAL_STATE);const states=[{...s}],radius=INITIAL_STATE.rearX-COURSE.centerX,steer=Math.atan(VEHICLE.wheelbase/radius);s.steer=steer;const k=Math.tan(steer)/VEHICLE.wheelbase,arcDistance=(-Math.PI/2)/k;for(let i=0;i<150;i++){s=integratePose(s,arcDistance/150,steer);s.steer=steer;states.push({...s})}s.steer=0;const straightDistance=-4.30-s.rearZ;for(let i=0;i<45;i++){s=integratePose(s,straightDistance/45,0);s.steer=0;states.push({...s})}return states}
