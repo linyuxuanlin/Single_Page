@@ -1,5 +1,6 @@
 import {
   bodyPolygon,
+  integratePose,
   lineCollisionDetails,
   predictStates,
   predictionDirection,
@@ -23,32 +24,64 @@ function collisionNames(state) {
   return lineCollisionDetails(state).hits.map(hit => hit.name);
 }
 
+/** Refine the first collision inside a coarse prediction step with bisection. */
+function refineFirstTouch(fromState, signedStepDistance, iterations = 10) {
+  let clearDistance = 0;
+  let hitDistance = signedStepDistance;
+  let hitState = integratePose(fromState, hitDistance, fromState.steer);
+  if (!collisionNames(hitState).length) return null;
+  for (let i = 0; i < iterations; i++) {
+    const mid = (clearDistance + hitDistance) / 2;
+    const midState = integratePose(fromState, mid, fromState.steer);
+    if (collisionNames(midState).length) {
+      hitDistance = mid;
+      hitState = midState;
+    } else clearDistance = mid;
+  }
+  return { state: hitState, distance: Math.abs(hitDistance), hitLines: collisionNames(hitState) };
+}
+
 export function predictLineRisk(state, { distance = 4.6, samples = 85 } = {}) {
   const direction = predictionDirection(state);
   const currentHits = collisionNames(state);
   const alreadyTouching = currentHits.length > 0;
-  const poses = predictStates(state, { distance, samples });
-  const stepDistance = samples > 0 ? distance / samples : 0;
+  const safeSamples = Math.max(1, Math.floor(samples));
+  const poses = predictStates(state, { distance, samples: safeSamples });
+  const stepDistance = distance / safeSamples;
   let predictedTouchIndex = -1;
   let predictedHits = [];
   for (let i = 0; i < poses.length; i++) {
     const hits = collisionNames(poses[i]);
     if (hits.length) { predictedTouchIndex = i; predictedHits = hits; break; }
   }
-  const willTouch = alreadyTouching || predictedTouchIndex !== -1;
-  const firstTouchIndex = alreadyTouching ? -1 : predictedTouchIndex;
-  const firstTouchState = alreadyTouching ? state : (predictedTouchIndex !== -1 ? poses[predictedTouchIndex] : null);
-  const distanceAhead = alreadyTouching ? 0 : (predictedTouchIndex !== -1 ? (predictedTouchIndex + 1) * stepDistance : null);
-  const hitLines = alreadyTouching ? currentHits : predictedHits;
 
+  let firstTouchState = null;
+  let distanceAhead = null;
+  if (alreadyTouching) {
+    firstTouchState = state;
+    distanceAhead = 0;
+  } else if (predictedTouchIndex !== -1) {
+    const segmentStart = predictedTouchIndex === 0 ? state : poses[predictedTouchIndex - 1];
+    const refined = refineFirstTouch(segmentStart, direction * stepDistance);
+    if (refined) {
+      firstTouchState = refined.state;
+      predictedHits = refined.hitLines;
+      distanceAhead = predictedTouchIndex * stepDistance + refined.distance;
+    } else {
+      firstTouchState = poses[predictedTouchIndex];
+      distanceAhead = (predictedTouchIndex + 1) * stepDistance;
+    }
+  }
+
+  const willTouch = alreadyTouching || predictedTouchIndex !== -1;
   return {
     willTouch,
     alreadyTouching,
     direction,
-    firstTouchIndex,
+    firstTouchIndex: alreadyTouching ? -1 : predictedTouchIndex,
     firstTouchState,
     distanceAhead,
-    hitLines,
+    hitLines: alreadyTouching ? currentHits : predictedHits,
     innerRearWheel: innerRearWheelKey(state.steer),
     samples: poses.length,
   };
@@ -88,42 +121,25 @@ export function coachHint(state, options) {
 
   if (risk.alreadyTouching) {
     const lines = lineLabel(risk.hitLines);
-    return {
-      level: 'danger',
-      code: 'line-touch-now',
-      text: lines ? `当前车身已触碰${lines}，先停车并观察车身与库线位置` : '当前车身已经触线，先停车并观察车身与库线位置',
-      risk,
-      deviation,
-    };
+    return { level: 'danger', code: 'line-touch-now', text: lines ? `当前车身已触碰${lines}，先停车并观察车身与库线位置` : '当前车身已经触线，先停车并观察车身与库线位置', risk, deviation };
   }
-
   if (risk.willTouch) {
     const meters = risk.distanceAhead.toFixed(1);
     const wheel = risk.innerRearWheel === 'rl' ? '左后轮' : risk.innerRearWheel === 'rr' ? '右后轮' : '车身';
     const lines = lineLabel(risk.hitLines);
-    return {
-      level: risk.distanceAhead <= 0.8 ? 'danger' : 'warn',
-      code: 'predicted-line-touch',
-      text: `保持当前方向约 ${meters} m 后可能触碰${lines || '库线'}，重点观察${wheel}`,
-      risk,
-      deviation,
-    };
+    return { level: risk.distanceAhead <= 0.8 ? 'danger' : 'warn', code: 'predicted-line-touch', text: `保持当前方向约 ${meters} m 后可能触碰${lines || '库线'}，重点观察${wheel}`, risk, deviation };
   }
-
   if (deviation.nearest.distance <= 1.5 && Math.abs(deviation.lateral) >= 0.35) {
     const side = deviation.lateral > 0 ? '右' : '左';
     return { level: Math.abs(deviation.lateral) >= 0.7 ? 'warn' : 'info', code: 'reference-lateral-deviation', text: `后轴相对参考轨迹偏${side} ${Math.abs(deviation.lateral).toFixed(1)} m，注意修正入库位置`, risk, deviation };
   }
-
   if (deviation.nearest.distance <= 1.5 && Math.abs(deviation.headingErrorDeg) >= 7) {
     const side = deviation.headingErrorDeg > 0 ? '左' : '右';
     return { level: Math.abs(deviation.headingErrorDeg) >= 14 ? 'warn' : 'info', code: 'reference-heading-deviation', text: `车身方向相对参考姿态向${side}偏 ${Math.abs(deviation.headingErrorDeg).toFixed(0)}°，注意回正时机`, risk, deviation };
   }
-
   if (Math.abs(state.steer) > 0.08) {
     const wheel = risk.innerRearWheel === 'rl' ? '左后轮' : '右后轮';
     return { level: 'info', code: 'watch-inner-rear-wheel', text: `当前转弯内侧为${wheel}，注意内轮差`, risk, deviation };
   }
-
   return { level: 'ok', code: 'path-clear', text: '当前预测范围内未发现触线风险', risk, deviation };
 }
