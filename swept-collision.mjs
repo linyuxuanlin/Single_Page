@@ -9,23 +9,27 @@ const finite = (value, fallback = 0) => Number.isFinite(value) ? value : fallbac
  *
  * The subdivision length defaults to half a line width. The hard cap keeps
  * malformed/very large distances from turning one check into unbounded work.
+ * 2048 substeps still preserves the half-line-width guarantee for more than
+ * 80 m of travel, far beyond any useful parking prediction horizon.
  * `assumeStartClear` is an optimization for callers that have already checked
  * the exact starting pose; leave it false for the safe standalone default.
  */
 export function sweptLineCollision(fromState, signedDistance, {
   maxStep = COURSE.lineWidth / 2,
-  maxSubsteps = 256,
+  maxSubsteps = 2048,
   assumeStartClear = false,
 } = {}) {
   const distance = finite(signedDistance);
   const safeMaxStep = Math.max(0.005, finite(maxStep, COURSE.lineWidth / 2));
-  const safeCap = Math.max(1, Math.min(2048, Math.floor(finite(maxSubsteps, 256))));
-  const steps = Math.max(1, Math.min(safeCap, Math.ceil(Math.abs(distance) / safeMaxStep)));
+  const safeCap = Math.max(1, Math.min(2048, Math.floor(finite(maxSubsteps, 2048))));
+  const requiredSteps = Math.max(1, Math.ceil(Math.abs(distance) / safeMaxStep));
+  const steps = Math.min(safeCap, requiredSteps);
+  const resolutionLimited = requiredSteps > safeCap;
 
   if (!assumeStartClear) {
     const startCollision = lineCollisionDetails(fromState);
     if (startCollision.touching) {
-      return { touching: true, distance: 0, fraction: 0, state: { ...fromState }, hits: startCollision.hits, stepsChecked: 0 };
+      return { touching: true, distance: 0, fraction: 0, state: { ...fromState }, hits: startCollision.hits, stepsChecked: 0, resolutionLimited: false };
     }
   }
 
@@ -58,12 +62,13 @@ export function sweptLineCollision(fromState, signedDistance, {
         state: hitState,
         hits: hitDetails.hits,
         stepsChecked: i,
+        resolutionLimited,
       };
     }
   }
 
   const endState = integratePose(fromState, distance, fromState?.steer);
-  return { touching: false, distance: null, fraction: null, state: endState, hits: [], stepsChecked: steps };
+  return { touching: false, distance: null, fraction: null, state: endState, hits: [], stepsChecked: steps, resolutionLimited };
 }
 
 /** Convenience helper for callers that only need stable line names. */
