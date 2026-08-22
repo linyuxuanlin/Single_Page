@@ -16,6 +16,24 @@ assert.deepEqual(sweptLineNames(start, -6), swept.hits.map(hit => hit.name));
 assert.ok(swept.fraction > 0 && swept.fraction < 1);
 assert.ok(Number.isFinite(swept.state.rearX) && Number.isFinite(swept.state.rearZ));
 
+// Callers that have already proven the exact start clear can skip that duplicate
+// SAT check without changing first-contact geometry or line identification.
+const sweptKnownClear = sweptLineCollision(start, -6, { assumeStartClear: true });
+assert.equal(sweptKnownClear.touching, swept.touching);
+assert.ok(Math.abs(sweptKnownClear.distance - swept.distance) < 1e-12);
+assert.deepEqual(sweptKnownClear.hits.map(hit => hit.name), swept.hits.map(hit => hit.name));
+assert.ok(Math.abs(sweptKnownClear.state.rearX - swept.state.rearX) < 1e-12);
+assert.ok(Math.abs(sweptKnownClear.state.rearZ - swept.state.rearZ) < 1e-12);
+
+// The optimization is explicitly opt-in: standalone callers still detect a
+// collision at distance zero when their starting pose is already touching.
+const touchingStart = { ...INITIAL_STATE, rearX: -1.23, rearZ: -6.5, yaw: Math.PI, steer: 0 };
+assert.equal(lineCollisionDetails(touchingStart).touching, true, 'touching fixture must begin on a bay line');
+const touchingDefault = sweptLineCollision(touchingStart, -0.2);
+assert.equal(touchingDefault.touching, true);
+assert.equal(touchingDefault.distance, 0);
+assert.equal(touchingDefault.stepsChecked, 0);
+
 // Ordinary safe travel should stay cheap and return the actual end pose.
 const safe = { ...INITIAL_STATE, rearX: 8, rearZ: 8, yaw: 0, steer: 0, gear: 'D' };
 const safeSweep = sweptLineCollision(safe, 1);
