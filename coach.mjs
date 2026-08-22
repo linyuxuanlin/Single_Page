@@ -1,6 +1,6 @@
 import {
   bodyPolygon,
-  lineViolation,
+  lineCollisionDetails,
   predictStates,
   predictionDirection,
   referenceTrajectory,
@@ -19,16 +19,27 @@ export function predictedSweepSamples(state, { distance = 4.6, samples = 85 } = 
   return poses.map((pose, index) => ({ index, pose, polygon: bodyPolygon(pose) }));
 }
 
+function collisionNames(state) {
+  return lineCollisionDetails(state).hits.map(hit => hit.name);
+}
+
 export function predictLineRisk(state, { distance = 4.6, samples = 85 } = {}) {
   const direction = predictionDirection(state);
-  const alreadyTouching = lineViolation(state);
+  const currentHits = collisionNames(state);
+  const alreadyTouching = currentHits.length > 0;
   const poses = predictStates(state, { distance, samples });
-  const stepDistance = distance / samples;
-  const predictedTouchIndex = poses.findIndex(lineViolation);
+  const stepDistance = samples > 0 ? distance / samples : 0;
+  let predictedTouchIndex = -1;
+  let predictedHits = [];
+  for (let i = 0; i < poses.length; i++) {
+    const hits = collisionNames(poses[i]);
+    if (hits.length) { predictedTouchIndex = i; predictedHits = hits; break; }
+  }
   const willTouch = alreadyTouching || predictedTouchIndex !== -1;
   const firstTouchIndex = alreadyTouching ? -1 : predictedTouchIndex;
   const firstTouchState = alreadyTouching ? state : (predictedTouchIndex !== -1 ? poses[predictedTouchIndex] : null);
   const distanceAhead = alreadyTouching ? 0 : (predictedTouchIndex !== -1 ? (predictedTouchIndex + 1) * stepDistance : null);
+  const hitLines = alreadyTouching ? currentHits : predictedHits;
 
   return {
     willTouch,
@@ -37,6 +48,7 @@ export function predictLineRisk(state, { distance = 4.6, samples = 85 } = {}) {
     firstTouchIndex,
     firstTouchState,
     distanceAhead,
+    hitLines,
     innerRearWheel: innerRearWheelKey(state.steer),
     samples: poses.length,
   };
@@ -65,15 +77,21 @@ export function referenceDeviation(state, reference = REFERENCE) {
   return { nearest, lateral, longitudinal, headingErrorRad, headingErrorDeg: headingErrorRad * 180 / Math.PI };
 }
 
+function lineLabel(lines = []) {
+  const labels = { left: '左侧库线', right: '右侧库线', back: '后侧库线' };
+  return lines.map(line => labels[line] || line).join('、');
+}
+
 export function coachHint(state, options) {
   const risk = predictLineRisk(state, options);
   const deviation = referenceDeviation(state);
 
   if (risk.alreadyTouching) {
+    const lines = lineLabel(risk.hitLines);
     return {
       level: 'danger',
       code: 'line-touch-now',
-      text: '当前车身已经触线，先停车并观察车身与库线位置',
+      text: lines ? `当前车身已触碰${lines}，先停车并观察车身与库线位置` : '当前车身已经触线，先停车并观察车身与库线位置',
       risk,
       deviation,
     };
@@ -82,10 +100,11 @@ export function coachHint(state, options) {
   if (risk.willTouch) {
     const meters = risk.distanceAhead.toFixed(1);
     const wheel = risk.innerRearWheel === 'rl' ? '左后轮' : risk.innerRearWheel === 'rr' ? '右后轮' : '车身';
+    const lines = lineLabel(risk.hitLines);
     return {
       level: risk.distanceAhead <= 0.8 ? 'danger' : 'warn',
       code: 'predicted-line-touch',
-      text: `保持当前方向约 ${meters} m 后可能触线，重点观察${wheel}`,
+      text: `保持当前方向约 ${meters} m 后可能触碰${lines || '库线'}，重点观察${wheel}`,
       risk,
       deviation,
     };
