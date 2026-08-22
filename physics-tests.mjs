@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {
-  VEHICLE, COURSE, CONTROL_BINDINGS, INITIAL_STATE, cloneState, localToWorld, frontDirection,
+  VEHICLE, COURSE, CONTROL_BINDINGS, INITIAL_STATE, PARKING_STOP_SPEED, cloneState, localToWorld, frontDirection,
   integratePose, stepVehicle, ackermannAngles, bodyPolygon, lineViolation,
-  isFullyInsideBay, headingErrorToBay, predictionDirection, predictStates,
+  isFullyInsideBay, headingErrorToBay, parkingSuccess, predictionDirection, predictStates,
   referenceTrajectory, polygonsOverlapSAT, rectPolygon,
 } from './physics.mjs';
 
@@ -70,8 +70,13 @@ s = { ...INITIAL_STATE, rearX:0,rearZ:-4.25,yaw:Math.PI,speed:0,steer:0 };
 assert.equal(lineViolation(s),false,'centered parked pose should not touch lines');
 assert.equal(isFullyInsideBay(s),true,'centered parked pose should be fully inside');
 assert.ok(headingErrorToBay(s)<1e-9);
+assert.equal(parkingSuccess(s),true,'fully stopped valid pose should complete');
+assert.equal(parkingSuccess({...s,speed:PARKING_STOP_SPEED}),true,'completion threshold is inclusive');
+assert.equal(parkingSuccess({...s,speed:PARKING_STOP_SPEED+.001}),false,'creeping pose must not complete early');
+assert.equal(parkingSuccess({...s,speed:.079}),false,'legacy 0.08 m/s creeping threshold must no longer complete');
 const crossed = { ...s, rearX:COURSE.bayWidth/2 };
 assert.equal(lineViolation(crossed),true,'vehicle crossing side line must be detected');
+assert.equal(parkingSuccess(crossed),false,'crossing a line cannot complete');
 
 assert.equal(predictionDirection({...INITIAL_STATE,speed:0,gear:'R'}),-1);
 assert.equal(predictionDirection({...INITIAL_STATE,speed:0,gear:'D'}),1);
@@ -84,6 +89,7 @@ assert.ok(ref.length>100);
 const end = {...ref.at(-1),speed:0};
 assert.equal(isFullyInsideBay(end),true,'reference end must be inside bay');
 assert.ok(headingErrorToBay(end)<1e-8,'reference end heading');
+assert.equal(parkingSuccess(end),true,'reference endpoint at rest should complete');
 for (const pose of ref) assert.equal(lineViolation(pose),false,'reference path must be line-safe');
 near(end.rearX,0,0.03,'reference centered x');
 near(end.rearZ,-4.30,0.05,'reference rear z');
