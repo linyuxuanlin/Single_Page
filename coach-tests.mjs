@@ -22,6 +22,7 @@ const farSafe = { ...INITIAL_STATE, rearX: 8, rearZ: 8, yaw: 0, gear: 'D', speed
 const safeRisk = predictLineRisk(farSafe, { distance: 1, samples: 20 });
 assert.equal(safeRisk.willTouch, false, 'far-away straight prediction should remain clear');
 assert.equal(safeRisk.distanceAhead, null);
+assert.deepEqual(safeRisk.hitLines, []);
 assert.equal(coachHint(farSafe, { distance: 1, samples: 20 }).code, 'path-clear');
 
 const nearBackLine = { ...INITIAL_STATE, rearX: 0, rearZ: -4.25, yaw: Math.PI, gear: 'R', speed: 0, steer: 0 };
@@ -29,7 +30,18 @@ const backRisk = predictLineRisk(nearBackLine, { distance: 1, samples: 100 });
 assert.equal(backRisk.willTouch, true, 'continuing to reverse from the parked pose must predict the back-line touch');
 assert.ok(backRisk.distanceAhead > 0 && backRisk.distanceAhead < 0.5, `unexpected back-line risk distance ${backRisk.distanceAhead}`);
 assert.equal(backRisk.firstTouchIndex >= 0, true);
-assert.equal(coachHint(nearBackLine, { distance: 1, samples: 100 }).code, 'predicted-line-touch');
+assert.deepEqual(backRisk.hitLines, ['back'], 'prediction should identify the exact line at risk');
+const backHint = coachHint(nearBackLine, { distance: 1, samples: 100 });
+assert.equal(backHint.code, 'predicted-line-touch');
+assert.match(backHint.text, /后侧库线/);
+
+const touchingLeft = { ...INITIAL_STATE, rearX: -1.25, rearZ: -2.5, yaw: Math.PI, gear: 'D', speed: 0, steer: 0 };
+const currentRisk = predictLineRisk(touchingLeft, { distance: 0.2, samples: 10 });
+assert.equal(currentRisk.alreadyTouching, true);
+assert.ok(currentRisk.hitLines.includes('left'), 'current collision should identify left line');
+const currentHint = coachHint(touchingLeft, { distance: 0.2, samples: 10 });
+assert.equal(currentHint.code, 'line-touch-now');
+assert.match(currentHint.text, /左侧库线/);
 
 const turningSafe = { ...farSafe, steer: 0.2 };
 const turningHint = coachHint(turningSafe, { distance: 0.2, samples: 10 });
