@@ -1,4 +1,5 @@
 const VALID_LINES = new Set(['left', 'right', 'back']);
+const LINE_ORDER = Object.freeze({ left: 0, right: 1, back: 2 });
 const LINE_LABELS = Object.freeze({ left: '左侧库线', right: '右侧库线', back: '后侧库线' });
 
 export function normalizeRiskLines(lines = []) {
@@ -9,7 +10,7 @@ export function normalizeRiskLines(lines = []) {
     seen.add(line);
     result.push(line);
   }
-  return result;
+  return result.sort((a, b) => LINE_ORDER[a] - LINE_ORDER[b]);
 }
 
 function sameLines(a = [], b = []) {
@@ -25,33 +26,19 @@ function baseRiskVisualState(risk = {}) {
   if (!lines.length || (!touching && !predicted)) {
     return { active: false, level: 'clear', lines: [], distanceAhead: distance, pulseSec: 0, opacity: 0 };
   }
-  if (touching) {
-    return { active: true, level: 'touch', lines, distanceAhead: 0, pulseSec: 0.72, opacity: 0.95 };
-  }
-  if (distance !== null && distance <= 0.8) {
-    return { active: true, level: 'danger', lines, distanceAhead: distance, pulseSec: 0.88, opacity: 0.88 };
-  }
-  if (distance !== null && distance <= 2.0) {
-    return { active: true, level: 'warn', lines, distanceAhead: distance, pulseSec: 1.15, opacity: 0.72 };
-  }
+  if (touching) return { active: true, level: 'touch', lines, distanceAhead: 0, pulseSec: 0.72, opacity: 0.95 };
+  if (distance !== null && distance <= 0.8) return { active: true, level: 'danger', lines, distanceAhead: distance, pulseSec: 0.88, opacity: 0.88 };
+  if (distance !== null && distance <= 2.0) return { active: true, level: 'warn', lines, distanceAhead: distance, pulseSec: 1.15, opacity: 0.72 };
   return { active: true, level: 'caution', lines, distanceAhead: distance, pulseSec: 1.45, opacity: 0.5 };
 }
 
-/**
- * Keep severity stable around the 0.8 m / 2.0 m boundaries.
- * Escalation is immediate; downgrade needs a little extra clearance.
- */
+/** Keep severity stable around the 0.8 m / 2.0 m boundaries. */
 export function riskVisualState(risk = {}, previous = null) {
   const next = baseRiskVisualState(risk);
   if (!previous?.active || !next.active || !sameLines(previous.lines, next.lines)) return next;
   if (!Number.isFinite(next.distanceAhead)) return next;
-
-  if (previous.level === 'danger' && next.level === 'warn' && next.distanceAhead <= 0.95) {
-    return { ...next, level: 'danger', pulseSec: 0.88, opacity: 0.88 };
-  }
-  if (previous.level === 'warn' && next.level === 'caution' && next.distanceAhead <= 2.2) {
-    return { ...next, level: 'warn', pulseSec: 1.15, opacity: 0.72 };
-  }
+  if (previous.level === 'danger' && next.level === 'warn' && next.distanceAhead <= 0.95) return { ...next, level: 'danger', pulseSec: 0.88, opacity: 0.88 };
+  if (previous.level === 'warn' && next.level === 'caution' && next.distanceAhead <= 2.2) return { ...next, level: 'warn', pulseSec: 1.15, opacity: 0.72 };
   return next;
 }
 
@@ -110,9 +97,7 @@ function ensureOverlay() {
   return root;
 }
 
-export function resetRiskOverlayState() {
-  previousPublishedVisual = null;
-}
+export function resetRiskOverlayState() { previousPublishedVisual = null; }
 
 export function publishRiskOverlay(risk) {
   const visual = riskVisualState(risk, previousPublishedVisual);
