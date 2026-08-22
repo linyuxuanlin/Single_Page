@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {createTrainingSession,recordTrainingSample,summarizeTrainingSession,scoreTrainingMetrics,extractTrainingEvents,buildReplayTrajectory} from './session.mjs';
+import {createTrainingSession,recordTrainingSample,summarizeTrainingSession,scoreTrainingMetrics,extractTrainingEvents,buildReplayTrajectory,completedParkingSample} from './session.mjs';
+import {bayClearances} from './physics.mjs';
 import {enterReplayMode,exitReplayMode,resetReplayRuntime} from './replay-runtime.mjs';
 
 resetReplayRuntime();
@@ -9,6 +10,20 @@ s=createTrainingSession({gear:'R'},0);recordTrainingSample(s,{t:0,state:{gear:'R
 const scored=scoreTrainingMetrics({lineTouchEvents:0,maxLateralM:.18,maxHeadingErrorDeg:5,maxSpeedKmh:4.5,steeringDirectionChanges:5,completed:true});assert.equal(scored.score,100);assert.equal(scored.totalPenalty,0);assert.deepEqual(scored.penalties,{lineTouch:0,lateral:0,heading:0,speed:0,steering:0,incomplete:0});
 s=createTrainingSession({gear:'R'},0);for(let i=0;i<12;i++)recordTrainingSample(s,base(i,i*.1,i===7,i<5?.25:-.2,i===9?'D':'R',i===6?-.95:i*.03,i===8?-22:i, i===10?-2.1:-.4));const events=extractTrainingEvents(s);assert.equal(events.maxLateral.index,6);assert.equal(events.maxLateral.value,-.95);assert.equal(events.maxHeading.index,8);assert.equal(events.maxHeading.value,-22);assert.equal(events.maxSpeed.index,10);assert.ok(Math.abs(events.maxSpeed.value-7.56)<1e-9);assert.equal(events.firstLineTouch.index,7);assert.equal(events.gearChanges[0].index,9);
 const replay=buildReplayTrajectory(s,{maxPoints:9});assert.ok(replay.length<=9);assert.equal(replay[0].index,0);assert.equal(replay.at(-1).index,11);for(const idx of [6,7,8,10])assert.ok(replay.some(p=>p.index===idx),`critical index ${idx} should survive replay downsampling`);assert.deepEqual(buildReplayTrajectory(createTrainingSession(),{maxPoints:10}),[]);assert.equal(buildReplayTrajectory(s,{maxPoints:0}).length,0);
+
+// Final parking clearance feedback must be anchored to the last pose that
+// actually satisfied parkingSuccess, not to later samples after the driver
+// nudges the car again or reopens the review.
+s=createTrainingSession({gear:'R'},0);
+const completedPose={rearX:0,rearZ:-4.15,yaw:Math.PI,speed:0,steer:0,gear:'R'};
+const afterCompletionPose={rearX:.9,rearZ:-5.1,yaw:Math.PI,speed:.3,steer:0,gear:'D'};
+recordTrainingSample(s,{t:0,state:{rearX:0,rearZ:-3.7,yaw:Math.PI,speed:-.2,steer:0,gear:'R'}});
+recordTrainingSample(s,{t:1,state:completedPose,parkingSuccess:true});
+recordTrainingSample(s,{t:2,state:afterCompletionPose});
+assert.equal(completedParkingSample(s).rearZ,completedPose.rearZ);
+r=summarizeTrainingSession(s);
+assert.deepEqual(r.finalClearances,bayClearances(completedPose));
+assert.notDeepEqual(r.finalClearances,bayClearances(afterCompletionPose));
 
 // Replay inspection time is not training time. A five-second review gap between
 // raw timestamps 1s and 7s must produce a normalized 2s training timestamp.
