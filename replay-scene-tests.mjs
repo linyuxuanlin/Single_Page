@@ -13,8 +13,10 @@ assert.ok(snap);assert.equal(snap.body.length,4);assert.deepEqual(Object.keys(sn
 assert.ok(Math.abs(snap.pose.rearX-1)<1e-8);assert.ok(Math.abs(snap.pose.rearZ+1)<1e-8);assert.equal(snap.marker?.type,'line-touch');
 for(const p of [...snap.body,...Object.values(snap.wheels)])assert.ok(Number.isFinite(p.x)&&Number.isFinite(p.z));
 const detail=replaySceneEventDetail(model,.5,{markerTolerance:.01});assert.equal(detail.marker?.label,'首次触线');assert.equal(detail.pose.gear,'R');assert.ok(Array.isArray(detail.collision.lines));
+assert.equal(detail.body.length,4);for(const p of detail.body)assert.ok(Number.isFinite(p.x)&&Number.isFinite(p.z));
+assert.ok(Array.isArray(detail.collision.hits));for(const hit of detail.collision.hits){assert.ok(['left','right','back'].includes(hit.name));assert.equal(hit.polygon.length,4);for(const p of hit.polygon)assert.ok(Number.isFinite(p.x)&&Number.isFinite(p.z))}
 assert.ok(detail.highlight);assert.equal(detail.highlight.active,true);assert.equal(detail.highlight.danger,true);assert.ok(Number.isFinite(detail.highlight.pulse));assert.ok(detail.highlight.style);assert.ok(detail.highlight.style.bodyScale>=1);
-// Collision diagnostics identify the exact bay line so the 3D renderer can highlight it.
+// Collision diagnostics identify the exact bay line so replay renderers can highlight it.
 const left=lineCollisionDetails({rearX:-COURSE.bayWidth/2,rearZ:-2.8,yaw:Math.PI,speed:0,steer:0,gear:'R'});assert.equal(left.touching,true);assert.ok(left.hits.some(h=>h.name==='left'));
 const right=lineCollisionDetails({rearX:COURSE.bayWidth/2,rearZ:-2.8,yaw:Math.PI,speed:0,steer:0,gear:'R'});assert.equal(right.touching,true);assert.ok(right.hits.some(h=>h.name==='right'));
 const back=lineCollisionDetails({rearX:0,rearZ:COURSE.backZ+.2,yaw:Math.PI,speed:0,steer:0,gear:'R'});assert.equal(back.touching,true);assert.ok(back.hits.some(h=>h.name==='back'));
