@@ -7,6 +7,7 @@ import {
   referenceTrajectory,
   normalizeAngle,
 } from './physics.mjs';
+import { publishRiskOverlay } from './risk-overlay.mjs';
 
 /** Teaching/analysis helpers layered on top of the stable vehicle physics. */
 export function innerRearWheelKey(steer, epsilon = 1e-4) {
@@ -125,6 +126,7 @@ function lineLabel(lines = []) {
 export function coachHint(state, options) {
   const risk = predictLineRisk(state, options);
   const deviation = referenceDeviation(state);
+  publishRiskOverlay(risk);
 
   if (risk.alreadyTouching) {
     const lines = lineLabel(risk.hitLines);
