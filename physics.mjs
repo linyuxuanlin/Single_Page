@@ -4,6 +4,7 @@ export const VEHICLE = Object.freeze({length:4.46,width:1.78,wheelbase:2.62,trac
 export const CONTROL_BINDINGS=Object.freeze({KeyW:'forward',ArrowUp:'forward',KeyS:'reverse',ArrowDown:'reverse',KeyA:'left',ArrowLeft:'left',KeyD:'right',ArrowRight:'right'});
 export const COURSE=Object.freeze({bayWidth:2.50,bayDepth:5.20,openingZ:-.20,backZ:-5.40,lineWidth:.08,centerX:0,centerZ:-2.80});
 export const INITIAL_STATE=Object.freeze({rearX:4.80,rearZ:3.20,yaw:-Math.PI/2,speed:0,steer:0,gear:'R'});
+export const PARKING_STOP_SPEED=0.02;
 export const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
 export function normalizeAngle(a){while(a>Math.PI)a-=Math.PI*2;while(a<=-Math.PI)a+=Math.PI*2;return a}
 export function cloneState(s=INITIAL_STATE){return {...s}}
@@ -37,7 +38,8 @@ export function bayClearances(s){
 }
 export function isFullyInsideBay(s,margin=0){const l=-COURSE.bayWidth/2+COURSE.lineWidth/2+margin,r=COURSE.bayWidth/2-COURSE.lineWidth/2-margin,f=COURSE.openingZ-COURSE.lineWidth/2-margin,b=COURSE.backZ+COURSE.lineWidth/2+margin;return bodyPolygon(s).every(p=>p.x>l&&p.x<r&&p.z<f&&p.z>b)}
 export function headingErrorToBay(s){return Math.abs(normalizeAngle(s.yaw-Math.PI))}
-export function parkingSuccess(s){return isFullyInsideBay(s,.015)&&headingErrorToBay(s)<5*Math.PI/180&&Math.abs(s.speed)<.08}
+/** Completion requires the vehicle to be essentially stopped, not merely creeping through a valid pose. */
+export function parkingSuccess(s){return isFullyInsideBay(s,.015)&&headingErrorToBay(s)<5*Math.PI/180&&Math.abs(s.speed)<=PARKING_STOP_SPEED}
 export function predictionDirection(s){if(Math.abs(s.speed)>.05)return Math.sign(s.speed);return s.gear==='D'?1:-1}
 /** Deterministic trajectory prediction with bounded, finite inputs. */
 export function predictStates(s,{distance=4.2,samples=80}={}){const safeDistance=Number.isFinite(distance)?Math.max(0,distance):0;const safeSamples=Number.isFinite(samples)?Math.max(1,Math.min(2000,Math.floor(samples))):80;const dir=predictionDirection(s),stepDistance=dir*safeDistance/safeSamples,states=[];let sim={...s};for(let i=0;i<safeSamples;i++){sim=integratePose(sim,stepDistance,sim.steer);states.push(sim)}return states}
