@@ -14,6 +14,7 @@ assert.ok(swept.distance > 0 && swept.distance < 2, `unexpected first-contact di
 assert.ok(swept.hits.some(hit => hit.name === 'back'), 'crossed line should be identified as the back line');
 assert.deepEqual(sweptLineNames(start, -6), swept.hits.map(hit => hit.name));
 assert.ok(swept.fraction > 0 && swept.fraction < 1);
+assert.equal(swept.resolutionLimited, false, 'normal parking sweeps must retain thin-line resolution');
 assert.ok(Number.isFinite(swept.state.rearX) && Number.isFinite(swept.state.rearZ));
 
 // Callers that have already proven the exact start clear can skip that duplicate
@@ -33,6 +34,7 @@ const touchingDefault = sweptLineCollision(touchingStart, -0.2);
 assert.equal(touchingDefault.touching, true);
 assert.equal(touchingDefault.distance, 0);
 assert.equal(touchingDefault.stepsChecked, 0);
+assert.equal(touchingDefault.resolutionLimited, false);
 
 // Ordinary safe travel should stay cheap and return the actual end pose.
 const safe = { ...INITIAL_STATE, rearX: 8, rearZ: 8, yaw: 0, steer: 0, gear: 'D' };
@@ -40,6 +42,17 @@ const safeSweep = sweptLineCollision(safe, 1);
 assert.equal(safeSweep.touching, false);
 assert.deepEqual(safeSweep.hits, []);
 assert.ok(Math.abs(safeSweep.state.rearZ - 7) < 1e-9);
+assert.equal(safeSweep.resolutionLimited, false);
+
+// The default 2048-step budget preserves <= half-line-width sampling for very
+// long but still plausible diagnostic sweeps, while explicitly reporting when
+// a caller forces a smaller budget that can no longer guarantee that spacing.
+const longSafeSweep = sweptLineCollision(safe, 40);
+assert.equal(longSafeSweep.resolutionLimited, false);
+assert.ok(longSafeSweep.stepsChecked <= 2048);
+const forcedLowBudget = sweptLineCollision(safe, 40, { maxSubsteps: 32 });
+assert.equal(forcedLowBudget.resolutionLimited, true);
+assert.equal(forcedLowBudget.stepsChecked, 32);
 
 // Invalid tuning inputs are bounded and must never leak NaN/unbounded work.
 const bounded = sweptLineCollision(safe, Number.NaN, { maxStep: Number.NaN, maxSubsteps: 999999 });
