@@ -16,9 +16,15 @@ export function innerRearWheelKey(steer, epsilon = 1e-4) {
   return null;
 }
 
-function predictionOptions({ distance = 4.6, samples = 85 } = {}) {
+// Continuous swept collision checking now protects every interval between
+// coarse poses, so the default no longer needs 85 discrete prediction poses.
+// 32 keeps sweep rendering smooth while reducing per-analysis allocations and
+// pose integration work on phones. Callers can still request a denser preview.
+const DEFAULT_PREDICTION_SAMPLES = 32;
+
+function predictionOptions({ distance = 4.6, samples = DEFAULT_PREDICTION_SAMPLES } = {}) {
   const safeDistance = Number.isFinite(distance) ? Math.max(0, distance) : 4.6;
-  const safeSamples = Number.isFinite(samples) ? Math.min(2000, Math.max(1, Math.floor(samples))) : 85;
+  const safeSamples = Number.isFinite(samples) ? Math.min(2000, Math.max(1, Math.floor(samples))) : DEFAULT_PREDICTION_SAMPLES;
   return { distance: safeDistance, samples: safeSamples };
 }
 
