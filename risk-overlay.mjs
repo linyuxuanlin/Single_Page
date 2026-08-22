@@ -59,8 +59,18 @@ export function riskSummaryText(visual = {}) {
   return `当前轨迹可能触碰${names}`;
 }
 
+export function riskAnnouncementText(visual = {}) {
+  const summary = riskSummaryText(visual);
+  if (!summary) return '';
+  if (visual.level === 'touch') return `已触线。${summary}`;
+  if (visual.level === 'danger') return `危险。${summary}`;
+  if (visual.level === 'warn') return `预警。${summary}`;
+  return `注意。${summary}`;
+}
+
 let installed = false;
 let previousPublishedVisual = null;
+let previousAnnouncement = '';
 function ensureOverlay() {
   if (typeof document === 'undefined') return null;
   let root = document.querySelector('#line-risk-overlay');
@@ -70,6 +80,15 @@ function ensureOverlay() {
   root.setAttribute('aria-hidden', 'true');
   root.innerHTML = '<i data-line="left"><span></span></i><i data-line="right"><span></span></i><i data-line="back"><span></span></i>';
   document.body.append(root);
+  let live = document.querySelector('#line-risk-live');
+  if (!live) {
+    live = document.createElement('div');
+    live.id = 'line-risk-live';
+    live.setAttribute('role', 'status');
+    live.setAttribute('aria-live', 'polite');
+    live.setAttribute('aria-atomic', 'true');
+    document.body.append(live);
+  }
   if (!installed) {
     const style = document.createElement('style');
     style.textContent = `
@@ -87,6 +106,7 @@ function ensureOverlay() {
 #line-risk-overlay[data-level="danger"]{--risk-color:255,100,82}
 #line-risk-overlay[data-level="warn"]{--risk-color:255,185,73}
 #line-risk-overlay[data-level="caution"]{--risk-color:255,214,102}
+#line-risk-live{position:fixed!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 @keyframes driving-risk-pulse{0%,100%{filter:brightness(.8)}50%{filter:brightness(1.45)}}
 @media(prefers-reduced-motion:reduce){#line-risk-overlay i.active{animation:none;filter:none}}
 @media(max-width:430px){#line-risk-overlay i[data-line="left"],#line-risk-overlay i[data-line="right"]{top:14%;bottom:20%}#line-risk-overlay i[data-line="back"]{left:22%;right:22%}#line-risk-overlay i span{font-size:9px;padding:3px 6px}}
@@ -97,7 +117,7 @@ function ensureOverlay() {
   return root;
 }
 
-export function resetRiskOverlayState() { previousPublishedVisual = null; }
+export function resetRiskOverlayState() { previousPublishedVisual = null; previousAnnouncement = ''; }
 
 export function publishRiskOverlay(risk) {
   const visual = riskVisualState(risk, previousPublishedVisual);
@@ -113,6 +133,12 @@ export function publishRiskOverlay(risk) {
     el.classList.toggle('active', active);
     const label = el.querySelector('span');
     if (label) label.textContent = active ? riskLineText(line, visual) : '';
+  }
+  const announcement = riskAnnouncementText(visual);
+  const live = document.querySelector('#line-risk-live');
+  if (live && announcement !== previousAnnouncement) {
+    live.textContent = announcement;
+    previousAnnouncement = announcement;
   }
   return visual;
 }
