@@ -9,19 +9,24 @@ const finite = (value, fallback = 0) => Number.isFinite(value) ? value : fallbac
  *
  * The subdivision length defaults to half a line width. The hard cap keeps
  * malformed/very large distances from turning one check into unbounded work.
+ * `assumeStartClear` is an optimization for callers that have already checked
+ * the exact starting pose; leave it false for the safe standalone default.
  */
 export function sweptLineCollision(fromState, signedDistance, {
   maxStep = COURSE.lineWidth / 2,
   maxSubsteps = 256,
+  assumeStartClear = false,
 } = {}) {
   const distance = finite(signedDistance);
   const safeMaxStep = Math.max(0.005, finite(maxStep, COURSE.lineWidth / 2));
   const safeCap = Math.max(1, Math.min(2048, Math.floor(finite(maxSubsteps, 256))));
   const steps = Math.max(1, Math.min(safeCap, Math.ceil(Math.abs(distance) / safeMaxStep)));
 
-  const startCollision = lineCollisionDetails(fromState);
-  if (startCollision.touching) {
-    return { touching: true, distance: 0, fraction: 0, state: { ...fromState }, hits: startCollision.hits, stepsChecked: 0 };
+  if (!assumeStartClear) {
+    const startCollision = lineCollisionDetails(fromState);
+    if (startCollision.touching) {
+      return { touching: true, distance: 0, fraction: 0, state: { ...fromState }, hits: startCollision.hits, stepsChecked: 0 };
+    }
   }
 
   for (let i = 1; i <= steps; i++) {
