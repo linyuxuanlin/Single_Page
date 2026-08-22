@@ -54,12 +54,13 @@ export function predictLineRisk(state, options = {}) {
     firstTouchState = state;
     distanceAhead = 0;
   } else {
-    // Check the whole travelled interval between coarse prediction poses. This
-    // prevents low sample counts from tunnelling completely across an 8 cm
-    // parking line when both segment endpoints happen to be clear.
+    // The exact current pose was checked above, and every prior swept segment
+    // must have stayed clear to reach the next one. Tell sweptLineCollision
+    // that each segment start is therefore known-clear so it can skip one
+    // redundant SAT body-vs-lines test per coarse pose (32 by default).
     let segmentStart = state;
     for (let i = 0; i < poses.length; i++) {
-      const swept = sweptLineCollision(segmentStart, direction * stepDistance);
+      const swept = sweptLineCollision(segmentStart, direction * stepDistance, { assumeStartClear: true });
       if (swept.touching) {
         predictedTouchIndex = i;
         firstTouchState = swept.state;
