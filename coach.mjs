@@ -15,7 +15,14 @@ export function innerRearWheelKey(steer, epsilon = 1e-4) {
   return null;
 }
 
-export function predictedSweepSamples(state, { distance = 4.6, samples = 85 } = {}) {
+function predictionOptions({ distance = 4.6, samples = 85 } = {}) {
+  const safeDistance = Number.isFinite(distance) ? Math.max(0, distance) : 4.6;
+  const safeSamples = Number.isFinite(samples) ? Math.min(2000, Math.max(1, Math.floor(samples))) : 85;
+  return { distance: safeDistance, samples: safeSamples };
+}
+
+export function predictedSweepSamples(state, options = {}) {
+  const { distance, samples } = predictionOptions(options);
   const poses = predictStates(state, { distance, samples });
   return poses.map((pose, index) => ({ index, pose, polygon: bodyPolygon(pose) }));
 }
@@ -41,13 +48,13 @@ function refineFirstTouch(fromState, signedStepDistance, iterations = 10) {
   return { state: hitState, distance: Math.abs(hitDistance), hitLines: collisionNames(hitState) };
 }
 
-export function predictLineRisk(state, { distance = 4.6, samples = 85 } = {}) {
+export function predictLineRisk(state, options = {}) {
+  const { distance, samples } = predictionOptions(options);
   const direction = predictionDirection(state);
   const currentHits = collisionNames(state);
   const alreadyTouching = currentHits.length > 0;
-  const safeSamples = Math.max(1, Math.floor(samples));
-  const poses = predictStates(state, { distance, samples: safeSamples });
-  const stepDistance = distance / safeSamples;
+  const poses = predictStates(state, { distance, samples });
+  const stepDistance = distance / samples;
   let predictedTouchIndex = -1;
   let predictedHits = [];
   for (let i = 0; i < poses.length; i++) {
