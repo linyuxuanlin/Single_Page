@@ -8,7 +8,10 @@ export function createTrainingSession(startState = {}, startedAt = 0) {
 }
 const signWithDeadzone=(v,d=.04)=>v>d?1:v<-d?-1:0;
 export function recordTrainingSample(session,sample){
-  if(isReplayModeActive())return exposeSession(session);
+  // A completed parking attempt is immutable. The UI may let the driver close
+  // the review and move the car again, but that movement belongs to a future
+  // attempt and must not rewrite the score/history/replay of the finished one.
+  if(isReplayModeActive()||session?.completed)return exposeSession(session);
   const s=session,state=sample.state??{},deviation=sample.deviation??{},lineTouch=Boolean(sample.lineTouch),steer=finite(state.steer),steerSign=signWithDeadzone(steer);
   if(lineTouch&&!s.lastLineTouch)s.lineTouchEvents++;s.lastLineTouch=lineTouch;
   if(steerSign&&s.lastSteerSign&&steerSign!==s.lastSteerSign)s.steeringDirectionChanges++;
@@ -82,8 +85,9 @@ export function scoreTrainingMetrics(metrics){const penalties={lineTouch:Math.mi
 /**
  * Use the last pose that actually satisfied the parking-success predicate for
  * final clearance feedback. A completed session may still receive later
- * samples (for example after closing the review and nudging the car); those
- * later poses must not rewrite what was a valid completed parking position.
+ * samples from older saved data; those later poses must not rewrite what was a
+ * valid completed parking position. New sessions are frozen at completion by
+ * recordTrainingSample().
  */
 export function completedParkingSample(session){
   const samples=session?.samples??[];
