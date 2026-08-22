@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { normalizeRiskLines, riskVisualState, riskLineText, riskSummaryText, publishRiskOverlay, resetRiskOverlayState } from './risk-overlay.mjs';
 
-assert.deepEqual(normalizeRiskLines(['left','bogus','left','back','right']), ['left','back','right']);
+assert.deepEqual(normalizeRiskLines(['left','bogus','left','back','right']), ['left','right','back']);
+assert.deepEqual(normalizeRiskLines(['back','left']), ['left','back']);
 assert.deepEqual(normalizeRiskLines(null), []);
 
 let v = riskVisualState({willTouch:false,hitLines:['left']});
@@ -22,8 +23,8 @@ v = riskVisualState({willTouch:true,distanceAhead:1.4,hitLines:['back']});
 assert.equal(v.level,'warn');
 assert.equal(riskLineText('back',v),'后侧库线 · 1.4 m');
 
-v = riskVisualState({willTouch:true,distanceAhead:3.2,hitLines:['left','back']});
-assert.equal(v.level,'caution'); assert.equal(v.lines.length,2);
+v = riskVisualState({willTouch:true,distanceAhead:3.2,hitLines:['back','left']});
+assert.equal(v.level,'caution'); assert.deepEqual(v.lines,['left','back']);
 assert.equal(riskSummaryText(v),'3.2 m 后可能触碰左侧库线、后侧库线');
 
 v = riskVisualState({willTouch:true,distanceAhead:NaN,hitLines:['left']});
@@ -31,7 +32,6 @@ assert.equal(v.level,'caution'); assert.equal(v.distanceAhead,null);
 assert.equal(riskLineText('left',v),'左侧库线 · 注意');
 assert.equal(riskSummaryText(v),'当前轨迹可能触碰左侧库线');
 
-// Severity escalation is immediate, but downgrade has hysteresis so 20 Hz analysis does not flicker near thresholds.
 let danger = riskVisualState({willTouch:true,distanceAhead:.79,hitLines:['left']});
 let heldDanger = riskVisualState({willTouch:true,distanceAhead:.86,hitLines:['left']}, danger);
 assert.equal(heldDanger.level,'danger');
@@ -44,11 +44,13 @@ assert.equal(heldWarn.level,'warn');
 let releasedWarn = riskVisualState({willTouch:true,distanceAhead:2.25,hitLines:['back']}, heldWarn);
 assert.equal(releasedWarn.level,'caution');
 
-// Hysteresis never leaks across a different collision line.
+// Same physical line set in a different input order must preserve hysteresis rather than flicker.
+let multiWarn = riskVisualState({willTouch:true,distanceAhead:1.95,hitLines:['back','left']});
+let reorderedHeld = riskVisualState({willTouch:true,distanceAhead:2.08,hitLines:['left','back']}, multiWarn);
+assert.equal(reorderedHeld.level,'warn'); assert.deepEqual(reorderedHeld.lines,['left','back']);
+
 const changedLine = riskVisualState({willTouch:true,distanceAhead:.86,hitLines:['right']}, danger);
 assert.equal(changedLine.level,'warn');
-
-// Clearing risk is immediate; stale danger must never stick after the prediction becomes safe.
 const cleared = riskVisualState({willTouch:false,distanceAhead:null,hitLines:[]}, danger);
 assert.equal(cleared.level,'clear'); assert.equal(cleared.active,false);
 
