@@ -25,6 +25,16 @@ export const COURSE_LINE_NAMES=Object.freeze(['left','right','back']);
 /** Detailed collision result for coaching/replay highlighting. */
 export function lineCollisionDetails(s){const car=bodyPolygon(s),hits=[];for(let i=0;i<LINE_POLYS.length;i++)if(polygonsOverlapSAT(car,LINE_POLYS[i]))hits.push({index:i,name:COURSE_LINE_NAMES[i],polygon:LINE_POLYS[i].map(p=>({...p}))});return{touching:hits.length>0,hits}}
 export function lineViolation(s){return lineCollisionDetails(s).touching}
+/** Signed distance from the car body to each parking-bay line's inner edge. Positive means clear, 0 means tangent, negative means crossing the line. */
+export function bayClearances(s){
+  const poly=bodyPolygon(s),xs=poly.map(p=>p.x),zs=poly.map(p=>p.z);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs);
+  const leftEdge=-COURSE.bayWidth/2+COURSE.lineWidth/2;
+  const rightEdge=COURSE.bayWidth/2-COURSE.lineWidth/2;
+  const backEdge=COURSE.backZ+COURSE.lineWidth/2;
+  const left=minX-leftEdge,right=rightEdge-maxX,back=minZ-backEdge;
+  return{left,right,back,minSide:Math.min(left,right),sideImbalance:left-right,min:Math.min(left,right,back)};
+}
 export function isFullyInsideBay(s,margin=0){const l=-COURSE.bayWidth/2+COURSE.lineWidth/2+margin,r=COURSE.bayWidth/2-COURSE.lineWidth/2-margin,f=COURSE.openingZ-COURSE.lineWidth/2-margin,b=COURSE.backZ+COURSE.lineWidth/2+margin;return bodyPolygon(s).every(p=>p.x>l&&p.x<r&&p.z<f&&p.z>b)}
 export function headingErrorToBay(s){return Math.abs(normalizeAngle(s.yaw-Math.PI))}
 export function parkingSuccess(s){return isFullyInsideBay(s,.015)&&headingErrorToBay(s)<5*Math.PI/180&&Math.abs(s.speed)<.08}
