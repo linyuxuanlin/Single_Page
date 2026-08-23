@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { INITIAL_STATE, VEHICLE, predictPathSegments, predictStates } from './physics.mjs';
-import { coachHint, predictLineRisk } from './coach.mjs';
+import { coachHint, predictLineRisk, predictedSweepSamples } from './coach.mjs';
 
 const close = (a, b, epsilon = 1e-9) => assert.ok(Math.abs(a - b) <= epsilon, `${a} != ${b}`);
 
@@ -29,10 +29,19 @@ assert.equal(states.length, 4);
 close(states[0].rearZ, segments[0].state.rearZ);
 close(states.at(-1).rearZ, segments.at(-1).state.rearZ);
 
+// A one-point visual budget is a hard budget. The dominant phase is retained;
+// collision coaching separately applies a two-phase safety floor when needed.
 const minimal = predictPathSegments(changingToDrive, { distance, samples: 1 });
-assert.equal(minimal.length, 2, 'one requested sample may expand to two segments to preserve a real reversal');
-assert.deepEqual(minimal.map(segment => segment.direction), [-1, 1]);
-close(minimal.reduce((sum, segment) => sum + Math.abs(segment.distance), 0), distance, 1e-12);
+assert.equal(minimal.length, 1, 'one requested visual sample must remain a hard one-point budget');
+assert.equal(minimal[0].direction, 1, 'the dominant D phase should be retained when the residual braking phase is tiny');
+close(Math.abs(minimal[0].distance), distance, 1e-12);
+
+// Sweep visualization must use the same two-phase path as normal prediction
+// when budget permits, rather than drawing the entire sweep in the old motion direction.
+const sweep = predictedSweepSamples(changingToDrive, { distance, samples: 4 });
+assert.equal(sweep.length, 4);
+assert.ok(sweep[0].pose.rearZ > 0, 'sweep must first show residual reverse travel');
+assert.ok(sweep.at(-1).pose.rearZ < 0, 'sweep must then show the selected forward gear path');
 
 // Coaching must expose the physical stop phase instead of telling the learner
 // that the path is simply clear while the car is still moving opposite gear.
