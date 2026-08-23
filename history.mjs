@@ -69,6 +69,16 @@ export function progressAdvice(history){
 export function serializeHistory(history,{limit=30}={}){return JSON.stringify(cleanHistory(history).slice(-Math.max(1,Math.floor(finite(limit,30)))))}
 export function parseHistory(raw){try{const v=JSON.parse(raw);return cleanHistory(v)}catch{return[]}}
 
+function refreshVisibleTrendCard(history){
+  if(typeof document==='undefined')return;
+  const backdrop=document.querySelector('#review-backdrop'),el=document.querySelector('#review-trend');
+  if(!el||!backdrop?.classList.contains('show'))return;
+  const trend=trainingTrend(history),advice=progressAdvice(history)[0];
+  if(!trend.attempts){el.innerHTML='<div class="trend-advice">完成一次有效练习后，这里会开始跟踪长期进步。</div>';return}
+  const delta=trend.scoreDelta>=1?`<span class="trend-delta up">↑${trend.scoreDelta.toFixed(0)}</span>`:trend.scoreDelta<=-1?`<span class="trend-delta down">↓${Math.abs(trend.scoreDelta).toFixed(0)}</span>`:'<span>→</span>';
+  el.innerHTML=`<div class="trend-top"><div class="trend-stat"><small>最近 ${trend.recentAttempts} 次均分</small><b>${trend.recentScore.toFixed(0)} ${delta}</b></div><div class="trend-stat"><small>完成率</small><b>${Math.round(trend.completionRate*100)}%</b></div><div class="trend-stat"><small>历史最佳</small><b>${trend.bestScore} 分</b></div></div><div class="trend-advice"><b>近期训练重点：</b>${advice}</div>`;
+}
+
 // The page intentionally allows opening a review before an attempt is finished. The
 // legacy page-level `historySaved` flag then prevents the later completed result from
 // being written. Reconcile the completed session here using the same attempt id; the
@@ -85,6 +95,7 @@ function installCompletedAttemptSync(){
       const {summarizeTrainingSession}=await import('./session.mjs');
       const summary=summarizeTrainingSession(session),attemptId=currentBrowserAttemptId(),history=parseHistory(localStorage.getItem(DEFAULT_HISTORY_STORAGE_KEY)||'[]'),next=upsertHistory(history,summary,{attemptId});
       localStorage.setItem(DEFAULT_HISTORY_STORAGE_KEY,serializeHistory(next));
+      refreshVisibleTrendCard(next);
       window.dispatchEvent(new CustomEvent('driving-lab:history-finalized',{detail:{attemptId,summary}}));
     }catch(err){
       synced.delete(session);
