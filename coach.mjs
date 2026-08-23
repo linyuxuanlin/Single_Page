@@ -33,7 +33,11 @@ function liveCoachPredictionOptions(options = {}) {
 
 export function predictedSweepSamples(state, options = {}) {
   const { distance, samples } = predictionOptions(options);
-  const poses = predictStates(state, { distance, samples });
+  // Sweep visualization must follow the same residual-motion -> braking -> new
+  // gear path as collision coaching. predictStates() intentionally collapses
+  // the path to one direction and can therefore draw the sweep on the wrong
+  // side immediately after a D/R change while the vehicle is still moving.
+  const poses = predictPathSegments(state, { distance, samples }).map(segment => segment.state);
   return poses.map((pose, index) => ({ index, pose, polygon: bodyPolygon(pose) }));
 }
 
