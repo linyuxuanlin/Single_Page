@@ -4,6 +4,7 @@ import { bayClearances } from './physics.mjs';
 const finite=(v,f=0)=>Number.isFinite(v)?v:f;
 const exposeSession=session=>{if(typeof window!=='undefined')window.__drivingLabSession=session;return session};
 export const PARKING_COMPLETION_DWELL_SEC=.35;
+export const PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC=.2;
 export function createTrainingSession(startState = {}, startedAt = 0) {
   const initialPose={rearX:finite(startState.rearX),rearZ:finite(startState.rearZ),yaw:finite(startState.yaw),speed:finite(startState.speed),steer:finite(startState.steer),gear:startState.gear??null};
   return exposeSession({startedAt,samples:[],initialPose,lastLineTouch:false,lineTouchEvents:0,steeringDirectionChanges:0,lastSteerSign:0,gearChanges:0,lastGear:startState.gear??null,completed:false,completionCandidateSince:null,replayPauseBaselineMs:getReplayPausedMs(),elapsedSec:0});
@@ -17,8 +18,11 @@ export function recordTrainingSample(session,sample){
   if(steerSign)s.lastSteerSign=steerSign;
   if(state.gear&&s.lastGear&&state.gear!==s.lastGear)s.gearChanges++;
   if(state.gear)s.lastGear=state.gear;
-  const rawT=finite(sample.t,0),pausedSec=Math.max(0,getReplayPausedMs()-(s.replayPauseBaselineMs??0))/1000,previousT=s.samples.at(-1)?.t??0,t=Math.max(previousT,rawT-pausedSec),parkingSuccess=Boolean(sample.parkingSuccess);
-  if(parkingSuccess){if(s.completionCandidateSince===null||!Number.isFinite(s.completionCandidateSince))s.completionCandidateSince=t;if(t-s.completionCandidateSince>=PARKING_COMPLETION_DWELL_SEC)s.completed=true}else s.completionCandidateSince=null;
+  const rawT=finite(sample.t,0),pausedSec=Math.max(0,getReplayPausedMs()-(s.replayPauseBaselineMs??0))/1000,previousT=s.samples.at(-1)?.t??0,t=Math.max(previousT,rawT-pausedSec),parkingSuccess=Boolean(sample.parkingSuccess),sampleGap=s.samples.length?Math.max(0,t-previousT):0;
+  if(parkingSuccess){
+    if(s.completionCandidateSince===null||!Number.isFinite(s.completionCandidateSince)||sampleGap>PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC)s.completionCandidateSince=t;
+    if(t-s.completionCandidateSince>=PARKING_COMPLETION_DWELL_SEC)s.completed=true;
+  }else s.completionCandidateSince=null;
   s.elapsedSec=t;
   s.samples.push({t,rearX:finite(state.rearX),rearZ:finite(state.rearZ),yaw:finite(state.yaw),speed:finite(state.speed),steer,gear:state.gear??null,lateral:finite(deviation.lateral),headingErrorDeg:finite(deviation.headingErrorDeg),lineTouch,parkingSuccess,coachCode:sample.coachCode??null});
   return exposeSession(s);
