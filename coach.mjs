@@ -2,6 +2,7 @@ import {
   bodyPolygon,
   lineCollisionDetails,
   predictStates,
+  predictPathSegments,
   predictionDirection,
   referenceTrajectory,
   normalizeAngle,
@@ -43,8 +44,7 @@ export function predictLineRisk(state, options = {}) {
   const direction = predictionDirection(state);
   const currentHits = collisionNames(state);
   const alreadyTouching = currentHits.length > 0;
-  const poses = predictStates(state, { distance, samples });
-  const stepDistance = distance / samples;
+  const segments = predictPathSegments(state, { distance, samples });
   let predictedTouchIndex = -1;
   let predictedHits = [];
   let firstTouchState = null;
@@ -54,21 +54,23 @@ export function predictLineRisk(state, options = {}) {
     firstTouchState = state;
     distanceAhead = 0;
   } else {
-    // The exact current pose was checked above, and every prior swept segment
-    // must have stayed clear to reach the next one. Tell sweptLineCollision
-    // that each segment start is therefore known-clear so it can skip one
-    // redundant SAT body-vs-lines test per coarse pose (32 by default).
+    // Each segment carries its own signed travel distance. This matters during
+    // D/R transitions: residual motion is swept to the stopping point first,
+    // then subsequent segments reverse into the newly selected gear direction.
     let segmentStart = state;
-    for (let i = 0; i < poses.length; i++) {
-      const swept = sweptLineCollision(segmentStart, direction * stepDistance, { assumeStartClear: true });
+    let travelled = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const swept = sweptLineCollision(segmentStart, segment.distance, { assumeStartClear: true });
       if (swept.touching) {
         predictedTouchIndex = i;
         firstTouchState = swept.state;
         predictedHits = swept.hits.map(hit => hit.name);
-        distanceAhead = i * stepDistance + swept.distance;
+        distanceAhead = travelled + swept.distance;
         break;
       }
-      segmentStart = poses[i];
+      travelled += Math.abs(segment.distance);
+      segmentStart = segment.state;
     }
   }
 
@@ -82,7 +84,7 @@ export function predictLineRisk(state, options = {}) {
     distanceAhead,
     hitLines: alreadyTouching ? currentHits : predictedHits,
     innerRearWheel: innerRearWheelKey(state.steer),
-    samples: poses.length,
+    samples: segments.length,
   };
 }
 
