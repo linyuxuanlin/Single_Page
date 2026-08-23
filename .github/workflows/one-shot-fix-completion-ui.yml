@@ -1,0 +1,42 @@
+name: One-shot completion UI integration fix
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/one-shot-fix-completion-ui.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - name: Patch completion UI to use session dwell completion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          text = p.read_text()
+          old_auto = "if(success&&!reviewShownForCompletion&&Math.abs(state.speed)<.08){reviewShownForCompletion=true;showReview(currentSummary())}"
+          new_auto = "if(session.completed&&!reviewShownForCompletion){reviewShownForCompletion=true;showReview(currentSummary())}"
+          old_status = "else if(parkingSuccess(state)){el.className='panel status warn';el.innerHTML='<strong>入库完成</strong><small>姿态与边界合格 · 已生成复盘</small>'}"
+          new_status = "else if(session.completed){el.className='panel status warn';el.innerHTML='<strong>入库完成</strong><small>稳定停车 0.35 s · 已生成复盘</small>'}"
+          assert text.count(old_auto) == 1, 'auto-review trigger changed unexpectedly'
+          assert text.count(old_status) == 1, 'completion status trigger changed unexpectedly'
+          text = text.replace(old_auto, new_auto).replace(old_status, new_status)
+          p.write_text(text)
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --check
+          git commit -m 'fix: respect parking completion dwell in UI'
+          git push origin HEAD:master
