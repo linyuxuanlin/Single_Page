@@ -5,16 +5,20 @@ export function historyEntry(summary,{at=Date.now()}={}){
   return {at:finite(at,Date.now()),score:clamp(Math.round(finite(summary?.score,0)),0,100),grade:summary?.grade??'',completed:Boolean(summary?.completed),durationSec:Math.max(0,finite(summary?.durationSec,0)),distanceM:Math.max(0,finite(summary?.distanceM,0)),maxLateralM:Math.max(0,finite(summary?.maxLateralM,0)),maxHeadingErrorDeg:Math.max(0,finite(summary?.maxHeadingErrorDeg,0)),maxSpeedKmh:Math.max(0,finite(summary?.maxSpeedKmh,0)),lineTouchEvents:Math.max(0,Math.floor(finite(summary?.lineTouchEvents,0))),steeringDirectionChanges:Math.max(0,Math.floor(finite(summary?.steeringDirectionChanges,0))),gearChanges:Math.max(0,Math.floor(finite(summary?.gearChanges,0)))};
 }
 
+const cleanHistory=history=>Array.isArray(history)?history.filter(Boolean).map(x=>historyEntry(x,{at:x.at})):[];
+
 export function appendHistory(history,summary,{at=Date.now(),limit=30}={}){
-  const clean=Array.isArray(history)?history.filter(Boolean).map(x=>historyEntry(x,{at:x.at})):[];
+  const clean=cleanHistory(history);
   clean.push(historyEntry(summary,{at}));
   return clean.slice(-Math.max(1,Math.floor(finite(limit,30))));
 }
 
-const avg=(items,key)=>items.length?items.reduce((s,x)=>s+finite(x[key],0),0)/items.length:0;
+const avg=(items,key)=>items.length?items.reduce((s,x)=>s+x[key],0)/items.length:0;
 export function trainingTrend(history,{window=5}={}){
-  const h=Array.isArray(history)?history.filter(Boolean):[],n=Math.max(1,Math.floor(finite(window,5))),recent=h.slice(-n),previous=h.slice(-2*n,-n);
-  const best=h.length?Math.max(...h.map(x=>finite(x.score,0))):0;
+  // Public callers may pass raw/localStorage-derived data. Normalize here as well as
+  // in parseHistory so one corrupt record cannot create impossible trend/advice values.
+  const h=cleanHistory(history),n=Math.max(1,Math.floor(finite(window,5))),recent=h.slice(-n),previous=h.slice(-2*n,-n);
+  const best=h.length?Math.max(...h.map(x=>x.score)):0;
   const completionRate=recent.length?recent.filter(x=>x.completed).length/recent.length:0;
   const recentScore=avg(recent,'score'),previousScore=avg(previous,'score');
   return {attempts:h.length,bestScore:best,recentAttempts:recent.length,recentScore,scoreDelta:previous.length?recentScore-previousScore:0,completionRate,recentLineTouches:avg(recent,'lineTouchEvents'),recentLateralM:avg(recent,'maxLateralM'),recentHeadingDeg:avg(recent,'maxHeadingErrorDeg')};
@@ -33,5 +37,5 @@ export function progressAdvice(history){
   return out;
 }
 
-export function serializeHistory(history,{limit=30}={}){return JSON.stringify((Array.isArray(history)?history:[]).slice(-Math.max(1,Math.floor(finite(limit,30)))))}
-export function parseHistory(raw){try{const v=JSON.parse(raw);return Array.isArray(v)?v.filter(Boolean).map(x=>historyEntry(x,{at:x.at})):[]}catch{return[]}}
+export function serializeHistory(history,{limit=30}={}){return JSON.stringify(cleanHistory(history).slice(-Math.max(1,Math.floor(finite(limit,30)))))}
+export function parseHistory(raw){try{const v=JSON.parse(raw);return cleanHistory(v)}catch{return[]}}
