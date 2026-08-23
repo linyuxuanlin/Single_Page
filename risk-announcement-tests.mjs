@@ -13,4 +13,6 @@ assert.equal(shouldAnnounceRisk(visual('danger',0.4),visual('touch',0),{elapsedM
 assert.equal(shouldAnnounceRisk(visual('warn',1.5),visual('clear',null,[]),{elapsedMs:20}),true,'risk clearing is observable state change');
 assert.equal(riskAnnouncementText(visual('danger',0.4,['right'])),'危险。0.4 m 后可能触碰右侧库线');
 assert.equal(riskAnnouncementText(visual('touch',0,['back'])),'已触线。已触碰后侧库线');
+assert.equal(riskAnnouncementText(visual('clear',null,[])),'风险解除。当前预测范围内未发现触线风险','clearing must have audible text, not an empty live-region update');
+assert.equal(riskAnnouncementText({active:false,level:'idle',lines:[]}), '','non-risk idle states should stay silent');
 console.log('risk-announcement-tests: all assertions passed');
