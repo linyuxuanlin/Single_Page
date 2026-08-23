@@ -9,13 +9,7 @@ on:
   push:
     branches: [master]
     paths:
-      - 'physics.mjs'
-      - 'coach.mjs'
-      - 'session.mjs'
-      - 'replay*.mjs'
-      - 'swept-collision.mjs'
-      - 'risk-overlay.mjs'
-      - '*-tests.mjs'
+      - '*.mjs'
       - '.github/workflows/physics-regression.yml'
 
 permissions:
