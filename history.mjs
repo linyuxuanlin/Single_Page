@@ -1,16 +1,45 @@
 const finite=(v,f=0)=>Number.isFinite(v)?v:f;
 const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+export const DEFAULT_HISTORY_STORAGE_KEY='driving-lab:reverse-parking:history-v1';
 
-export function historyEntry(summary,{at=Date.now()}={}){
-  return {at:finite(at,Date.now()),score:clamp(Math.round(finite(summary?.score,0)),0,100),grade:summary?.grade??'',completed:Boolean(summary?.completed),durationSec:Math.max(0,finite(summary?.durationSec,0)),distanceM:Math.max(0,finite(summary?.distanceM,0)),maxLateralM:Math.max(0,finite(summary?.maxLateralM,0)),maxHeadingErrorDeg:Math.max(0,finite(summary?.maxHeadingErrorDeg,0)),maxSpeedKmh:Math.max(0,finite(summary?.maxSpeedKmh,0)),lineTouchEvents:Math.max(0,Math.floor(finite(summary?.lineTouchEvents,0))),steeringDirectionChanges:Math.max(0,Math.floor(finite(summary?.steeringDirectionChanges,0))),gearChanges:Math.max(0,Math.floor(finite(summary?.gearChanges,0)))};
+const browserAttemptIds=new WeakMap();
+let attemptSequence=0;
+function currentBrowserAttemptId(){
+  if(typeof window==='undefined')return null;
+  const session=window.__drivingLabSession;
+  if(!session||typeof session!=='object')return null;
+  let id=browserAttemptIds.get(session);
+  if(!id){
+    const random=globalThis.crypto?.randomUUID?.();
+    id=random||`attempt-${Date.now().toString(36)}-${(++attemptSequence).toString(36)}`;
+    browserAttemptIds.set(session,id);
+  }
+  return id;
 }
 
-const cleanHistory=history=>Array.isArray(history)?history.filter(Boolean).map(x=>historyEntry(x,{at:x.at})):[];
+export function historyEntry(summary,{at=Date.now(),attemptId=null}={}){
+  return {at:finite(at,Date.now()),attemptId:typeof attemptId==='string'&&attemptId?attemptId:null,score:clamp(Math.round(finite(summary?.score,0)),0,100),grade:summary?.grade??'',completed:Boolean(summary?.completed),durationSec:Math.max(0,finite(summary?.durationSec,0)),distanceM:Math.max(0,finite(summary?.distanceM,0)),maxLateralM:Math.max(0,finite(summary?.maxLateralM,0)),maxHeadingErrorDeg:Math.max(0,finite(summary?.maxHeadingErrorDeg,0)),maxSpeedKmh:Math.max(0,finite(summary?.maxSpeedKmh,0)),lineTouchEvents:Math.max(0,Math.floor(finite(summary?.lineTouchEvents,0))),steeringDirectionChanges:Math.max(0,Math.floor(finite(summary?.steeringDirectionChanges,0))),gearChanges:Math.max(0,Math.floor(finite(summary?.gearChanges,0)))};
+}
 
-export function appendHistory(history,summary,{at=Date.now(),limit=30}={}){
-  const clean=cleanHistory(history);
-  clean.push(historyEntry(summary,{at}));
-  return clean.slice(-Math.max(1,Math.floor(finite(limit,30))));
+const cleanHistory=history=>Array.isArray(history)?history.filter(Boolean).map(x=>historyEntry(x,{at:x.at,attemptId:x.attemptId})):[];
+
+/** Upsert one logical attempt. This lets an early/manual review be replaced by the final completed result instead of polluting long-term trends with two records. */
+export function upsertHistory(history,summary,{at=Date.now(),attemptId=null,limit=30}={}){
+  const clean=cleanHistory(history),safeLimit=Math.max(1,Math.floor(finite(limit,30))),id=typeof attemptId==='string'&&attemptId?attemptId:null;
+  if(id){
+    const index=clean.findIndex(entry=>entry.attemptId===id);
+    if(index>=0){
+      const originalAt=clean[index].at;
+      clean[index]=historyEntry(summary,{at:originalAt,attemptId:id});
+      return clean.slice(-safeLimit);
+    }
+  }
+  clean.push(historyEntry(summary,{at,attemptId:id}));
+  return clean.slice(-safeLimit);
+}
+
+export function appendHistory(history,summary,{at=Date.now(),limit=30,attemptId=currentBrowserAttemptId()}={}){
+  return upsertHistory(history,summary,{at,limit,attemptId});
 }
 
 const avg=(items,key)=>items.length?items.reduce((s,x)=>s+x[key],0)/items.length:0;
@@ -39,3 +68,29 @@ export function progressAdvice(history){
 
 export function serializeHistory(history,{limit=30}={}){return JSON.stringify(cleanHistory(history).slice(-Math.max(1,Math.floor(finite(limit,30)))))}
 export function parseHistory(raw){try{const v=JSON.parse(raw);return cleanHistory(v)}catch{return[]}}
+
+// The page intentionally allows opening a review before an attempt is finished. The
+// legacy page-level `historySaved` flag then prevents the later completed result from
+// being written. Reconcile the completed session here using the same attempt id; the
+// normal page save becomes an idempotent upsert, so there is never a duplicate entry.
+function installCompletedAttemptSync(){
+  if(typeof window==='undefined'||typeof localStorage==='undefined'||window.__drivingHistorySyncInstalled)return;
+  window.__drivingHistorySyncInstalled=true;
+  const synced=new WeakSet();
+  const sync=async()=>{
+    const session=window.__drivingLabSession;
+    if(!session?.completed||!session?.samples?.length||synced.has(session))return;
+    synced.add(session);
+    try{
+      const {summarizeTrainingSession}=await import('./session.mjs');
+      const summary=summarizeTrainingSession(session),attemptId=currentBrowserAttemptId(),history=parseHistory(localStorage.getItem(DEFAULT_HISTORY_STORAGE_KEY)||'[]'),next=upsertHistory(history,summary,{attemptId});
+      localStorage.setItem(DEFAULT_HISTORY_STORAGE_KEY,serializeHistory(next));
+      window.dispatchEvent(new CustomEvent('driving-lab:history-finalized',{detail:{attemptId,summary}}));
+    }catch(err){
+      synced.delete(session);
+      console.warn('history completion sync unavailable',err);
+    }
+  };
+  setInterval(sync,250);
+}
+if(typeof window!=='undefined')queueMicrotask(installCompletedAttemptSync);
