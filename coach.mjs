@@ -18,11 +18,17 @@ export function innerRearWheelKey(steer, epsilon = 1e-4) {
 }
 
 const DEFAULT_PREDICTION_SAMPLES = 32;
+export const LIVE_COACH_MAX_SAMPLES = DEFAULT_PREDICTION_SAMPLES;
 
 function predictionOptions({ distance = 4.6, samples = DEFAULT_PREDICTION_SAMPLES } = {}) {
   const safeDistance = Number.isFinite(distance) ? Math.max(0, distance) : 4.6;
   const safeSamples = Number.isFinite(samples) ? Math.min(2000, Math.max(1, Math.floor(samples))) : DEFAULT_PREDICTION_SAMPLES;
   return { distance: safeDistance, samples: safeSamples };
+}
+
+function liveCoachPredictionOptions(options = {}) {
+  const normalized = predictionOptions(options);
+  return { ...normalized, samples: Math.min(normalized.samples, LIVE_COACH_MAX_SAMPLES) };
 }
 
 export function predictedSweepSamples(state, options = {}) {
@@ -117,8 +123,11 @@ function lineLabel(lines = []) {
   return lines.map(line => labels[line] || line).join('、');
 }
 
-export function coachHint(state, options) {
-  const risk = predictLineRisk(state, options);
+export function coachHint(state, options = {}) {
+  // coachHint is the hot-path browser API (called around 20 Hz). Keep its
+  // collision forecast bounded even if an older UI requests a denser value.
+  // Direct predictLineRisk callers still retain the full 1..2000 diagnostic range.
+  const risk = predictLineRisk(state, liveCoachPredictionOptions(options));
   const deviation = referenceDeviation(state);
   publishRiskOverlay(risk);
 
