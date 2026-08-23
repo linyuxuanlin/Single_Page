@@ -41,12 +41,24 @@ function collisionNames(state) {
   return lineCollisionDetails(state).hits.map(hit => hit.name);
 }
 
+function selectedGearDirection(state) {
+  return state?.gear === 'D' ? 1 : -1;
+}
+
 export function predictLineRisk(state, options = {}) {
   const { distance, samples } = predictionOptions(options);
   const direction = predictionDirection(state);
   const currentHits = collisionNames(state);
   const alreadyTouching = currentHits.length > 0;
-  const segments = predictPathSegments(state, { distance, samples });
+
+  // A one-sample visual budget is allowed to collapse a reversal path to its
+  // dominant phase. Collision coaching cannot do that safely: a very short
+  // residual-motion braking phase may be the only phase that touches a line.
+  // Preserve both phase boundaries for collision checks while leaving the
+  // public physics sampler's hard budget semantics unchanged.
+  const reversalSafetyFloorApplied = samples === 1 && direction !== selectedGearDirection(state);
+  const collisionSamples = reversalSafetyFloorApplied ? 2 : samples;
+  const segments = predictPathSegments(state, { distance, samples: collisionSamples });
   const firstDirection = segments[0]?.direction ?? direction;
   const reversalIndex = segments.findIndex(segment => segment.direction !== firstDirection);
   const reversing = reversalIndex > 0;
@@ -92,6 +104,8 @@ export function predictLineRisk(state, options = {}) {
     hitLines: alreadyTouching ? currentHits : predictedHits,
     innerRearWheel: innerRearWheelKey(state.steer),
     samples: segments.length,
+    requestedSamples: samples,
+    reversalSafetyFloorApplied,
   };
 }
 
