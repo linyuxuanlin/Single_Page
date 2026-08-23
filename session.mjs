@@ -3,6 +3,7 @@ import { bayClearances } from './physics.mjs';
 
 const finite=(v,f=0)=>Number.isFinite(v)?v:f;
 const exposeSession=session=>{if(typeof window!=='undefined')window.__drivingLabSession=session;return session};
+const TIME_EPSILON_SEC=1e-9;
 export const PARKING_COMPLETION_DWELL_SEC=.35;
 export const PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC=.2;
 export const SPEED_FREE_KMH=2.4;
@@ -22,8 +23,8 @@ export function recordTrainingSample(session,sample){
   if(state.gear)s.lastGear=state.gear;
   const rawT=finite(sample.t,0),pausedSec=Math.max(0,getReplayPausedMs()-(s.replayPauseBaselineMs??0))/1000,previousT=s.samples.at(-1)?.t??0,t=Math.max(previousT,rawT-pausedSec),parkingSuccess=Boolean(sample.parkingSuccess),sampleGap=s.samples.length?Math.max(0,t-previousT):0;
   if(parkingSuccess){
-    if(s.completionCandidateSince===null||!Number.isFinite(s.completionCandidateSince)||sampleGap>PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC)s.completionCandidateSince=t;
-    if(t-s.completionCandidateSince>=PARKING_COMPLETION_DWELL_SEC)s.completed=true;
+    if(s.completionCandidateSince===null||!Number.isFinite(s.completionCandidateSince)||sampleGap>PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC+TIME_EPSILON_SEC)s.completionCandidateSince=t;
+    if(t-s.completionCandidateSince>=PARKING_COMPLETION_DWELL_SEC-TIME_EPSILON_SEC)s.completed=true;
   }else s.completionCandidateSince=null;
   s.elapsedSec=t;
   s.samples.push({t,rearX:finite(state.rearX),rearZ:finite(state.rearZ),yaw:finite(state.yaw),speed:finite(state.speed),steer,gear:state.gear??null,lateral:finite(deviation.lateral),headingErrorDeg:finite(deviation.headingErrorDeg),lineTouch,parkingSuccess,coachCode:sample.coachCode??null});
@@ -35,7 +36,7 @@ export function extractTrainingEvents(session){
   if(!samples.length)return{maxLateral:null,maxHeading:null,maxSpeed:null,firstLineTouch:null,steeringChanges:[],gearChanges:[],completion:null};
   const eventFrom=(sample,index,extra={})=>({index,t:sample.t,rearX:sample.rearX,rearZ:sample.rearZ,yaw:sample.yaw,speed:sample.speed,steer:sample.steer,gear:sample.gear,...extra});
   let lateralIndex=0,headingIndex=0,speedIndex=0,firstLineTouch=null,completion=null;const steeringChanges=[],gearChanges=[];let previousSteerSign=signWithDeadzone(samples[0].steer),previousGear=samples[0].gear,wasTouching=false;
-  for(let i=0;i<samples.length;i++){const p=samples[i];if(Math.abs(p.lateral)>Math.abs(samples[lateralIndex].lateral))lateralIndex=i;if(Math.abs(p.headingErrorDeg)>Math.abs(samples[headingIndex].headingErrorDeg))headingIndex=i;if(Math.abs(p.speed)>Math.abs(samples[speedIndex].speed))speedIndex=i;if(p.lineTouch&&!wasTouching&&firstLineTouch===null)firstLineTouch=eventFrom(p,i,{type:'line-touch'});wasTouching=p.lineTouch;const steerSign=signWithDeadzone(p.steer);if(i&&steerSign&&previousSteerSign&&steerSign!==previousSteerSign)steeringChanges.push(eventFrom(p,i,{type:'steering-change',from:previousSteerSign,to:steerSign}));if(steerSign)previousSteerSign=steerSign;if(i&&p.gear&&previousGear&&p.gear!==previousGear)gearChanges.push(eventFrom(p,i,{type:'gear-change',from:previousGear,to:p.gear}));if(p.gear)previousGear=p.gear;if(completion===null&&p.parkingSuccess&&session?.completed&&p.t-(session.completionCandidateSince??p.t)>=PARKING_COMPLETION_DWELL_SEC-1e-9)completion=eventFrom(p,i,{type:'completion'});}
+  for(let i=0;i<samples.length;i++){const p=samples[i];if(Math.abs(p.lateral)>Math.abs(samples[lateralIndex].lateral))lateralIndex=i;if(Math.abs(p.headingErrorDeg)>Math.abs(samples[headingIndex].headingErrorDeg))headingIndex=i;if(Math.abs(p.speed)>Math.abs(samples[speedIndex].speed))speedIndex=i;if(p.lineTouch&&!wasTouching&&firstLineTouch===null)firstLineTouch=eventFrom(p,i,{type:'line-touch'});wasTouching=p.lineTouch;const steerSign=signWithDeadzone(p.steer);if(i&&steerSign&&previousSteerSign&&steerSign!==previousSteerSign)steeringChanges.push(eventFrom(p,i,{type:'steering-change',from:previousSteerSign,to:steerSign}));if(steerSign)previousSteerSign=steerSign;if(i&&p.gear&&previousGear&&p.gear!==previousGear)gearChanges.push(eventFrom(p,i,{type:'gear-change',from:previousGear,to:p.gear}));if(p.gear)previousGear=p.gear;if(completion===null&&p.parkingSuccess&&session?.completed&&p.t-(session.completionCandidateSince??p.t)>=PARKING_COMPLETION_DWELL_SEC-TIME_EPSILON_SEC)completion=eventFrom(p,i,{type:'completion'});}
   return{maxLateral:eventFrom(samples[lateralIndex],lateralIndex,{type:'max-lateral',value:samples[lateralIndex].lateral}),maxHeading:eventFrom(samples[headingIndex],headingIndex,{type:'max-heading',value:samples[headingIndex].headingErrorDeg}),maxSpeed:eventFrom(samples[speedIndex],speedIndex,{type:'max-speed',value:Math.abs(samples[speedIndex].speed)*3.6}),firstLineTouch,steeringChanges,gearChanges,completion};
 }
 
