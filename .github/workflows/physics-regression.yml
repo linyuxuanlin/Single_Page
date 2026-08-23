@@ -1,0 +1,52 @@
+name: Physics regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '*.mjs'
+      - '.github/workflows/physics-regression.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'physics.mjs'
+      - 'coach.mjs'
+      - 'session.mjs'
+      - 'replay*.mjs'
+      - 'swept-collision.mjs'
+      - 'risk-overlay.mjs'
+      - '*-tests.mjs'
+      - '.github/workflows/physics-regression.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run deterministic Node regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=( *-tests.mjs )
+          if (( ${#tests[@]} == 0 )); then
+            echo 'No *-tests.mjs files found' >&2
+            exit 1
+          fi
+          printf 'Running %d regression files\n' "${#tests[@]}"
+          for test_file in "${tests[@]}"; do
+            echo "::group::$test_file"
+            node "$test_file"
+            echo '::endgroup::'
+          done
