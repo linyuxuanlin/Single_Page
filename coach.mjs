@@ -17,10 +17,6 @@ export function innerRearWheelKey(steer, epsilon = 1e-4) {
   return null;
 }
 
-// Continuous swept collision checking now protects every interval between
-// coarse poses, so the default no longer needs 85 discrete prediction poses.
-// 32 keeps sweep rendering smooth while reducing per-analysis allocations and
-// pose integration work on phones. Callers can still request a denser preview.
 const DEFAULT_PREDICTION_SAMPLES = 32;
 
 function predictionOptions({ distance = 4.6, samples = DEFAULT_PREDICTION_SAMPLES } = {}) {
@@ -45,6 +41,12 @@ export function predictLineRisk(state, options = {}) {
   const currentHits = collisionNames(state);
   const alreadyTouching = currentHits.length > 0;
   const segments = predictPathSegments(state, { distance, samples });
+  const firstDirection = segments[0]?.direction ?? direction;
+  const reversalIndex = segments.findIndex(segment => segment.direction !== firstDirection);
+  const reversing = reversalIndex > 0;
+  const stopDistanceAhead = reversing
+    ? segments.slice(0, reversalIndex).reduce((sum, segment) => sum + Math.abs(segment.distance), 0)
+    : 0;
   let predictedTouchIndex = -1;
   let predictedHits = [];
   let firstTouchState = null;
@@ -54,9 +56,6 @@ export function predictLineRisk(state, options = {}) {
     firstTouchState = state;
     distanceAhead = 0;
   } else {
-    // Each segment carries its own signed travel distance. This matters during
-    // D/R transitions: residual motion is swept to the stopping point first,
-    // then subsequent segments reverse into the newly selected gear direction.
     let segmentStart = state;
     let travelled = 0;
     for (let i = 0; i < segments.length; i++) {
@@ -79,6 +78,8 @@ export function predictLineRisk(state, options = {}) {
     willTouch,
     alreadyTouching,
     direction,
+    reversing,
+    stopDistanceAhead,
     firstTouchIndex: alreadyTouching ? -1 : predictedTouchIndex,
     firstTouchState,
     distanceAhead,
@@ -130,6 +131,10 @@ export function coachHint(state, options) {
     const wheel = risk.innerRearWheel === 'rl' ? '左后轮' : risk.innerRearWheel === 'rr' ? '右后轮' : '车身';
     const lines = lineLabel(risk.hitLines);
     return { level: risk.distanceAhead <= 0.8 ? 'danger' : 'warn', code: 'predicted-line-touch', text: `保持当前方向约 ${meters} m 后可能触碰${lines || '库线'}，重点观察${wheel}`, risk, deviation };
+  }
+  if (risk.reversing) {
+    const cm = Math.max(1, Math.round(risk.stopDistanceAhead * 100));
+    return { level: 'info', code: 'direction-change-braking', text: `正在换向制动，约 ${cm} cm 后停稳，再按当前挡位继续行驶`, risk, deviation };
   }
   if (deviation.nearest.distance <= 1.5 && Math.abs(deviation.lateral) >= 0.35) {
     const side = deviation.lateral > 0 ? '右' : '左';
