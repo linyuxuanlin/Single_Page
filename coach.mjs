@@ -54,8 +54,6 @@ export function predictLineRisk(state, options = {}) {
   // A one-sample visual budget is allowed to collapse a reversal path to its
   // dominant phase. Collision coaching cannot do that safely: a very short
   // residual-motion braking phase may be the only phase that touches a line.
-  // Preserve both phase boundaries for collision checks while leaving the
-  // public physics sampler's hard budget semantics unchanged.
   const reversalSafetyFloorApplied = samples === 1 && direction !== selectedGearDirection(state);
   const collisionSamples = reversalSafetyFloorApplied ? 2 : samples;
   const segments = predictPathSegments(state, { distance, samples: collisionSamples });
@@ -69,6 +67,7 @@ export function predictLineRisk(state, options = {}) {
   let predictedHits = [];
   let firstTouchState = null;
   let distanceAhead = null;
+  let resolutionLimited = false;
 
   if (alreadyTouching) {
     firstTouchState = state;
@@ -79,6 +78,7 @@ export function predictLineRisk(state, options = {}) {
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
       const swept = sweptLineCollision(segmentStart, segment.distance, { assumeStartClear: true });
+      resolutionLimited ||= swept.resolutionLimited;
       if (swept.touching) {
         predictedTouchIndex = i;
         firstTouchState = swept.state;
@@ -106,6 +106,8 @@ export function predictLineRisk(state, options = {}) {
     samples: segments.length,
     requestedSamples: samples,
     reversalSafetyFloorApplied,
+    resolutionLimited,
+    predictionReliable: !resolutionLimited,
   };
 }
 
@@ -138,9 +140,6 @@ function lineLabel(lines = []) {
 }
 
 export function coachHint(state, options = {}) {
-  // coachHint is the hot-path browser API (called around 20 Hz). Keep its
-  // collision forecast bounded even if an older UI requests a denser value.
-  // Direct predictLineRisk callers still retain the full 1..2000 diagnostic range.
   const risk = predictLineRisk(state, liveCoachPredictionOptions(options));
   const deviation = referenceDeviation(state);
   publishRiskOverlay(risk);
@@ -154,6 +153,12 @@ export function coachHint(state, options = {}) {
     const wheel = risk.innerRearWheel === 'rl' ? '左后轮' : risk.innerRearWheel === 'rr' ? '右后轮' : '车身';
     const lines = lineLabel(risk.hitLines);
     return { level: risk.distanceAhead <= 0.8 ? 'danger' : 'warn', code: 'predicted-line-touch', text: `保持当前方向约 ${meters} m 后可能触碰${lines || '库线'}，重点观察${wheel}`, risk, deviation };
+  }
+  // Never turn a deliberately resolution-limited sweep into a false “clear”.
+  // This is mainly a guard for diagnostic/very-long-horizon callers; normal
+  // 4.6 m live coaching remains comfortably inside the spatial budget.
+  if (!risk.predictionReliable) {
+    return { level: 'warn', code: 'prediction-resolution-limited', text: '预测范围过大，当前无法可靠排除中途触线，请缩短预测范围后再判断', risk, deviation };
   }
   if (risk.reversing) {
     const cm = Math.max(1, Math.round(risk.stopDistanceAhead * 100));
