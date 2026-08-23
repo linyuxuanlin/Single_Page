@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import {createTrainingSession,recordTrainingSample,summarizeTrainingSession} from './session.mjs';
+import {createTrainingSession,recordTrainingSample,summarizeTrainingSession,PARKING_COMPLETION_DWELL_SEC} from './session.mjs';
 import {resetReplayRuntime} from './replay-runtime.mjs';
 
 resetReplayRuntime();
 const session=createTrainingSession({gear:'R'},0);
 recordTrainingSample(session,{t:0,state:{rearX:0,rearZ:-3.6,yaw:Math.PI,speed:-.2,steer:0,gear:'R'},deviation:{lateral:.12,headingErrorDeg:2}});
 recordTrainingSample(session,{t:1,state:{rearX:0,rearZ:-4.2,yaw:Math.PI,speed:0,steer:0,gear:'R'},deviation:{lateral:.08,headingErrorDeg:1},parkingSuccess:true});
+assert.equal(session.completed,false,'first valid stopped frame only starts the completion dwell');
+recordTrainingSample(session,{t:1+PARKING_COMPLETION_DWELL_SEC,state:{rearX:0,rearZ:-4.2,yaw:Math.PI,speed:0,steer:0,gear:'R'},deviation:{lateral:.08,headingErrorDeg:1},parkingSuccess:true});
+assert.equal(session.completed,true,'stable valid parking must complete after the dwell');
 
 const sampleCount=session.samples.length;
 const before=summarizeTrainingSession(session);
