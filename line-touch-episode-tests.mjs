@@ -20,7 +20,7 @@ assert.equal(LINE_TOUCH_REARM_CLEAR_SEC,0.25,'touch episode re-arm window should
   recordTrainingSample(s,sample(0,true));
   recordTrainingSample(s,sample(0.10,false));
   recordTrainingSample(s,sample(0.36,true));
-  assert.equal(s.lineTouchEvents,2,'a touch after at least 250 ms clearly off-line should count as a new episode even without an intermediate sample');
+  assert.equal(s.lineTouchEvents,1,'an unobserved sampling gap must not be treated as proof the car stayed clear long enough to create a second episode');
 }
 
 {
@@ -28,7 +28,7 @@ assert.equal(LINE_TOUCH_REARM_CLEAR_SEC,0.25,'touch episode re-arm window should
   recordTrainingSample(s,sample(0,true));
   recordTrainingSample(s,sample(0.10,false));
   recordTrainingSample(s,sample(0.35,false));
-  assert.equal(s.lineTouchArmed,true,'sustained clear observations should re-arm touch counting');
+  assert.equal(s.lineTouchArmed,true,'sustained observed clear samples should re-arm touch counting');
   recordTrainingSample(s,sample(0.36,true));
   assert.equal(s.lineTouchEvents,2,'a genuinely separate second collision should still be counted');
   assert.equal(summarizeTrainingSession(s).penalties.lineTouch,50,'two separate touch episodes should retain the existing 50-point penalty cap');
