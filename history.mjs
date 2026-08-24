@@ -44,25 +44,19 @@ export function appendHistory(history,summary,{at=Date.now(),limit=30,attemptId=
 
 const avg=(items,key)=>items.length?items.reduce((s,x)=>s+x[key],0)/items.length:0;
 export function trainingTrend(history,{window=5}={}){
-  // Public callers may pass raw/localStorage-derived data. Normalize here as well as
-  // in parseHistory so one corrupt record cannot create impossible trend/advice values.
   const h=cleanHistory(history),n=Math.max(1,Math.floor(finite(window,5))),recent=h.slice(-n),previous=h.slice(-2*n,-n);
   const best=h.length?Math.max(...h.map(x=>x.score)):0;
   const completionRate=recent.length?recent.filter(x=>x.completed).length/recent.length:0;
   const recentScore=avg(recent,'score'),previousScore=avg(previous,'score');
-  // A trend arrow should compare like-for-like windows. With six attempts and a
-  // five-attempt window, comparing the latest five against one old attempt is far
-  // too noisy and can falsely tell a learner that their strategy is improving or
-  // deteriorating. Wait until both windows are complete before publishing delta.
   const hasComparableWindows=recent.length===n&&previous.length===n;
   return {attempts:h.length,bestScore:best,recentAttempts:recent.length,comparisonAttempts:hasComparableWindows?n:0,recentScore,scoreDelta:hasComparableWindows?recentScore-previousScore:0,completionRate,recentLineTouches:avg(recent,'lineTouchEvents'),recentLateralM:avg(recent,'maxLateralM'),recentHeadingDeg:avg(recent,'maxHeadingErrorDeg')};
 }
 
 export function progressAdvice(history){
   const t=trainingTrend(history);if(!t.attempts)return['完成一次练习后，这里会开始跟踪长期进步。'];
+  if(t.attempts<3)return[`再完成 ${3-t.attempts} 次练习后，可开始判断近期训练重点；当前先关注单次复盘。`];
   const out=[];
-  if(t.attempts<3)out.push(`再完成 ${3-t.attempts} 次练习后，可开始判断近期训练重点；当前先关注单次复盘。`);
-  if(t.recentAttempts>=3&&t.completionRate<.6)out.push('最近完成率偏低：先以稳定完整入库为目标，再追求高分。');
+  if(t.completionRate<.6)out.push('最近完成率偏低：先以稳定完整入库为目标，再追求高分。');
   if(t.recentLineTouches>=.5)out.push('最近仍较常触线：优先观察内侧后轮和预测扫掠区。');
   if(t.recentLateralM>.45)out.push('最近横向偏差偏大：重点复盘切入点与第一次回正时机。');
   if(t.recentHeadingDeg>12)out.push('最近车身角度误差偏大：接近平行时减少碎方向并更早回正。');
@@ -85,10 +79,6 @@ function refreshVisibleTrendCard(history){
   el.innerHTML=`<div class="trend-top"><div class="trend-stat"><small>最近 ${trend.recentAttempts} 次均分</small><b>${trend.recentScore.toFixed(0)} ${delta}</b></div><div class="trend-stat"><small>完成率</small><b>${Math.round(trend.completionRate*100)}%</b></div><div class="trend-stat"><small>历史最佳</small><b>${trend.bestScore} 分</b></div></div><div class="trend-advice"><b>近期训练重点：</b>${advice}</div>`;
 }
 
-// The page intentionally allows opening a review before an attempt is finished. The
-// legacy page-level `historySaved` flag then prevents the later completed result from
-// being written. Reconcile the completed session here using the same attempt id; the
-// normal page save becomes an idempotent upsert, so there is never a duplicate entry.
 function installCompletedAttemptSync(){
   if(typeof window==='undefined'||typeof localStorage==='undefined'||window.__drivingHistorySyncInstalled)return;
   window.__drivingHistorySyncInstalled=true;
