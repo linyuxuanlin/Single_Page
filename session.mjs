@@ -19,7 +19,7 @@ const signWithDeadzone=(v,d=.04)=>v>d?1:v<-d?-1:0;
 const isMovingForSteeringCorrection=speed=>Math.abs(finite(speed))>=STEERING_CORRECTION_MIN_SPEED_MPS;
 export function recordTrainingSample(session,sample){
   if(isReplayModeActive()||session?.completed)return exposeSession(session);
-  const s=session,state=sample.state??{},deviation=sample.deviation??{},lineTouch=Boolean(sample.lineTouch),steer=finite(state.steer),steerSign=signWithDeadzone(steer),movingForSteeringCorrection=isMovingForSteeringCorrection(state.speed);
+  const s=session,state=sample.state??{},deviation=sample.deviation??{},lineTouch=Boolean(sample.lineTouch),steer=finite(state.steer),steerSign=signWithDeadzone(steer),movingForSteeringCorrection=isMovingForSteeringCorrection(state.speed),gearChanged=Boolean(state.gear&&s.lastGear&&state.gear!==s.lastGear);
   const rawT=finite(sample.t,0),pausedSec=Math.max(0,getReplayPausedMs()-(s.replayPauseBaselineMs??0))/1000,previousT=s.samples.at(-1)?.t??0,t=Math.max(previousT,rawT-pausedSec),parkingSuccess=Boolean(sample.parkingSuccess),sampleGap=s.samples.length?Math.max(0,t-previousT):0;
   if(lineTouch){
     if(!s.lastLineTouch&&s.lineTouchArmed)s.lineTouchEvents++;
@@ -30,7 +30,12 @@ export function recordTrainingSample(session,sample){
     if(!s.lineTouchArmed&&t-s.lineClearSince>=LINE_TOUCH_REARM_CLEAR_SEC-TIME_EPSILON_SEC)s.lineTouchArmed=true;
   }
   s.lastLineTouch=lineTouch;
-  if(movingForSteeringCorrection){
+  if(gearChanged){
+    // A D/R change starts a new movement segment. Sampling can miss the exact
+    // zero-speed frame during direction changes, so never compare steering
+    // across gears or the first turn in the new segment can be mis-scored.
+    s.lastSteerSign=steerSign;
+  }else if(movingForSteeringCorrection){
     if(steerSign&&s.lastSteerSign&&steerSign!==s.lastSteerSign)s.steeringDirectionChanges++;
     if(steerSign)s.lastSteerSign=steerSign;
   }else{
@@ -39,7 +44,7 @@ export function recordTrainingSample(session,sample){
     // direction from the previous segment so a later turn is not mis-scored.
     s.lastSteerSign=steerSign;
   }
-  if(state.gear&&s.lastGear&&state.gear!==s.lastGear)s.gearChanges++;
+  if(gearChanged)s.gearChanges++;
   if(state.gear)s.lastGear=state.gear;
   if(parkingSuccess){
     if(s.completionCandidateSince===null||!Number.isFinite(s.completionCandidateSince)||sampleGap>PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC+TIME_EPSILON_SEC)s.completionCandidateSince=t;
@@ -62,12 +67,14 @@ export function extractTrainingEvents(session){
     if(Math.abs(p.speed)>Math.abs(samples[speedIndex].speed))speedIndex=i;
     if(p.lineTouch&&!wasTouching&&firstLineTouch===null)firstLineTouch=eventFrom(p,i,{type:'line-touch'});
     wasTouching=p.lineTouch;
-    const steerSign=signWithDeadzone(p.steer),movingForSteeringCorrection=isMovingForSteeringCorrection(p.speed);
-    if(movingForSteeringCorrection){
+    const steerSign=signWithDeadzone(p.steer),movingForSteeringCorrection=isMovingForSteeringCorrection(p.speed),gearChanged=Boolean(i&&p.gear&&previousGear&&p.gear!==previousGear);
+    if(gearChanged){
+      previousSteerSign=steerSign;
+    }else if(movingForSteeringCorrection){
       if(steerSign&&previousSteerSign&&steerSign!==previousSteerSign)steeringChanges.push(eventFrom(p,i,{type:'steering-change',from:previousSteerSign,to:steerSign}));
       if(steerSign)previousSteerSign=steerSign;
     }else previousSteerSign=steerSign;
-    if(i&&p.gear&&previousGear&&p.gear!==previousGear)gearChanges.push(eventFrom(p,i,{type:'gear-change',from:previousGear,to:p.gear}));
+    if(gearChanged)gearChanges.push(eventFrom(p,i,{type:'gear-change',from:previousGear,to:p.gear}));
     if(p.gear)previousGear=p.gear;
     if(completion===null&&p.parkingSuccess&&session?.completed&&p.t-(session.completionCandidateSince??p.t)>=PARKING_COMPLETION_DWELL_SEC-TIME_EPSILON_SEC)completion=eventFrom(p,i,{type:'completion'});
   }
