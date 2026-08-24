@@ -61,13 +61,14 @@ export function trainingTrend(history,{window=5}={}){
 export function progressAdvice(history){
   const t=trainingTrend(history);if(!t.attempts)return['完成一次练习后，这里会开始跟踪长期进步。'];
   const out=[];
+  if(t.attempts<3)out.push(`再完成 ${3-t.attempts} 次练习后，可开始判断近期训练重点；当前先关注单次复盘。`);
   if(t.recentAttempts>=3&&t.completionRate<.6)out.push('最近完成率偏低：先以稳定完整入库为目标，再追求高分。');
   if(t.recentLineTouches>=.5)out.push('最近仍较常触线：优先观察内侧后轮和预测扫掠区。');
   if(t.recentLateralM>.45)out.push('最近横向偏差偏大：重点复盘切入点与第一次回正时机。');
   if(t.recentHeadingDeg>12)out.push('最近车身角度误差偏大：接近平行时减少碎方向并更早回正。');
   if(t.comparisonAttempts>=5&&t.scoreDelta>=5)out.push(`最近平均分提升 ${t.scoreDelta.toFixed(0)} 分，当前练习策略有效。`);
   if(t.comparisonAttempts>=5&&t.scoreDelta<=-5)out.push(`最近平均分下降 ${Math.abs(t.scoreDelta).toFixed(0)} 分，建议降低速度并复盘关键事件。`);
-  if(!out.length)out.push('最近表现较稳定，可尝试关闭参考轨迹后重复完成。');
+  if(!out.length)out.push('最近指标暂无明显问题，可尝试关闭参考轨迹后重复完成。');
   return out;
 }
 
@@ -80,7 +81,7 @@ function refreshVisibleTrendCard(history){
   if(!el||!backdrop?.classList.contains('show'))return;
   const trend=trainingTrend(history),advice=progressAdvice(history)[0];
   if(!trend.attempts){el.innerHTML='<div class="trend-advice">完成一次有效练习后，这里会开始跟踪长期进步。</div>';return}
-  const delta=trend.scoreDelta>=1?`<span class="trend-delta up">↑${trend.scoreDelta.toFixed(0)}</span>`:trend.scoreDelta<=-1?`<span class="trend-delta down">↓${Math.abs(trend.scoreDelta).toFixed(0)}</span>`:'<span>→</span>';
+  const delta=trend.comparisonAttempts===0?'<span class="trend-delta pending">样本积累中</span>':trend.scoreDelta>=1?`<span class="trend-delta up">↑${trend.scoreDelta.toFixed(0)}</span>`:trend.scoreDelta<=-1?`<span class="trend-delta down">↓${Math.abs(trend.scoreDelta).toFixed(0)}</span>`:'<span class="trend-delta stable">→</span>';
   el.innerHTML=`<div class="trend-top"><div class="trend-stat"><small>最近 ${trend.recentAttempts} 次均分</small><b>${trend.recentScore.toFixed(0)} ${delta}</b></div><div class="trend-stat"><small>完成率</small><b>${Math.round(trend.completionRate*100)}%</b></div><div class="trend-stat"><small>历史最佳</small><b>${trend.bestScore} 分</b></div></div><div class="trend-advice"><b>近期训练重点：</b>${advice}</div>`;
 }
 
