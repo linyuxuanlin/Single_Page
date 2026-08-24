@@ -50,7 +50,12 @@ export function trainingTrend(history,{window=5}={}){
   const best=h.length?Math.max(...h.map(x=>x.score)):0;
   const completionRate=recent.length?recent.filter(x=>x.completed).length/recent.length:0;
   const recentScore=avg(recent,'score'),previousScore=avg(previous,'score');
-  return {attempts:h.length,bestScore:best,recentAttempts:recent.length,recentScore,scoreDelta:previous.length?recentScore-previousScore:0,completionRate,recentLineTouches:avg(recent,'lineTouchEvents'),recentLateralM:avg(recent,'maxLateralM'),recentHeadingDeg:avg(recent,'maxHeadingErrorDeg')};
+  // A trend arrow should compare like-for-like windows. With six attempts and a
+  // five-attempt window, comparing the latest five against one old attempt is far
+  // too noisy and can falsely tell a learner that their strategy is improving or
+  // deteriorating. Wait until both windows are complete before publishing delta.
+  const hasComparableWindows=recent.length===n&&previous.length===n;
+  return {attempts:h.length,bestScore:best,recentAttempts:recent.length,comparisonAttempts:hasComparableWindows?n:0,recentScore,scoreDelta:hasComparableWindows?recentScore-previousScore:0,completionRate,recentLineTouches:avg(recent,'lineTouchEvents'),recentLateralM:avg(recent,'maxLateralM'),recentHeadingDeg:avg(recent,'maxHeadingErrorDeg')};
 }
 
 export function progressAdvice(history){
@@ -60,8 +65,8 @@ export function progressAdvice(history){
   if(t.recentLineTouches>=.5)out.push('最近仍较常触线：优先观察内侧后轮和预测扫掠区。');
   if(t.recentLateralM>.45)out.push('最近横向偏差偏大：重点复盘切入点与第一次回正时机。');
   if(t.recentHeadingDeg>12)out.push('最近车身角度误差偏大：接近平行时减少碎方向并更早回正。');
-  if(t.recentAttempts>=5&&t.scoreDelta>=5)out.push(`最近平均分提升 ${t.scoreDelta.toFixed(0)} 分，当前练习策略有效。`);
-  if(t.recentAttempts>=5&&t.scoreDelta<=-5)out.push(`最近平均分下降 ${Math.abs(t.scoreDelta).toFixed(0)} 分，建议降低速度并复盘关键事件。`);
+  if(t.comparisonAttempts>=5&&t.scoreDelta>=5)out.push(`最近平均分提升 ${t.scoreDelta.toFixed(0)} 分，当前练习策略有效。`);
+  if(t.comparisonAttempts>=5&&t.scoreDelta<=-5)out.push(`最近平均分下降 ${Math.abs(t.scoreDelta).toFixed(0)} 分，建议降低速度并复盘关键事件。`);
   if(!out.length)out.push('最近表现较稳定，可尝试关闭参考轨迹后重复完成。');
   return out;
 }
