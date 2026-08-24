@@ -6,22 +6,31 @@ const exposeSession=session=>{if(typeof window!=='undefined')window.__drivingLab
 const TIME_EPSILON_SEC=1e-9;
 export const PARKING_COMPLETION_DWELL_SEC=.35;
 export const PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC=.2;
+export const LINE_TOUCH_REARM_CLEAR_SEC=.25;
 export const SPEED_FREE_KMH=2.4;
 export const SPEED_ADVICE_KMH=3.2;
 export function createTrainingSession(startState = {}, startedAt = 0) {
   const initialPose={rearX:finite(startState.rearX),rearZ:finite(startState.rearZ),yaw:finite(startState.yaw),speed:finite(startState.speed),steer:finite(startState.steer),gear:startState.gear??null};
-  return exposeSession({startedAt,samples:[],initialPose,lastLineTouch:false,lineTouchEvents:0,steeringDirectionChanges:0,lastSteerSign:0,gearChanges:0,lastGear:startState.gear??null,completed:false,completionCandidateSince:null,replayPauseBaselineMs:getReplayPausedMs(),elapsedSec:0});
+  return exposeSession({startedAt,samples:[],initialPose,lastLineTouch:false,lineTouchArmed:true,lineClearSince:null,lineTouchEvents:0,steeringDirectionChanges:0,lastSteerSign:0,gearChanges:0,lastGear:startState.gear??null,completed:false,completionCandidateSince:null,replayPauseBaselineMs:getReplayPausedMs(),elapsedSec:0});
 }
 const signWithDeadzone=(v,d=.04)=>v>d?1:v<-d?-1:0;
 export function recordTrainingSample(session,sample){
   if(isReplayModeActive()||session?.completed)return exposeSession(session);
   const s=session,state=sample.state??{},deviation=sample.deviation??{},lineTouch=Boolean(sample.lineTouch),steer=finite(state.steer),steerSign=signWithDeadzone(steer);
-  if(lineTouch&&!s.lastLineTouch)s.lineTouchEvents++;s.lastLineTouch=lineTouch;
+  const rawT=finite(sample.t,0),pausedSec=Math.max(0,getReplayPausedMs()-(s.replayPauseBaselineMs??0))/1000,previousT=s.samples.at(-1)?.t??0,t=Math.max(previousT,rawT-pausedSec),parkingSuccess=Boolean(sample.parkingSuccess),sampleGap=s.samples.length?Math.max(0,t-previousT):0;
+  if(lineTouch){
+    const clearFor=s.lineClearSince===null?0:Math.max(0,t-s.lineClearSince);
+    if(!s.lastLineTouch&&(s.lineTouchArmed||clearFor>=LINE_TOUCH_REARM_CLEAR_SEC-TIME_EPSILON_SEC))s.lineTouchEvents++;
+    s.lineTouchArmed=false;s.lineClearSince=null;
+  }else{
+    if(s.lastLineTouch||s.lineClearSince===null||!Number.isFinite(s.lineClearSince))s.lineClearSince=t;
+    if(!s.lineTouchArmed&&t-s.lineClearSince>=LINE_TOUCH_REARM_CLEAR_SEC-TIME_EPSILON_SEC)s.lineTouchArmed=true;
+  }
+  s.lastLineTouch=lineTouch;
   if(steerSign&&s.lastSteerSign&&steerSign!==s.lastSteerSign)s.steeringDirectionChanges++;
   if(steerSign)s.lastSteerSign=steerSign;
   if(state.gear&&s.lastGear&&state.gear!==s.lastGear)s.gearChanges++;
   if(state.gear)s.lastGear=state.gear;
-  const rawT=finite(sample.t,0),pausedSec=Math.max(0,getReplayPausedMs()-(s.replayPauseBaselineMs??0))/1000,previousT=s.samples.at(-1)?.t??0,t=Math.max(previousT,rawT-pausedSec),parkingSuccess=Boolean(sample.parkingSuccess),sampleGap=s.samples.length?Math.max(0,t-previousT):0;
   if(parkingSuccess){
     if(s.completionCandidateSince===null||!Number.isFinite(s.completionCandidateSince)||sampleGap>PARKING_COMPLETION_MAX_SAMPLE_GAP_SEC+TIME_EPSILON_SEC)s.completionCandidateSince=t;
     if(t-s.completionCandidateSince>=PARKING_COMPLETION_DWELL_SEC-TIME_EPSILON_SEC)s.completed=true;
