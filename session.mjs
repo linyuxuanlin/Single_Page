@@ -31,7 +31,10 @@ export function recordTrainingSample(session,sample){
   }
   s.lastLineTouch=lineTouch;
   if(movingForSteeringCorrection&&steerSign&&s.lastSteerSign&&steerSign!==s.lastSteerSign)s.steeringDirectionChanges++;
-  if(movingForSteeringCorrection&&steerSign)s.lastSteerSign=steerSign;
+  // Steering changes made while stopped are setup for the next movement, not
+  // trajectory corrections. Keep them as the baseline so resuming motion does
+  // not retroactively turn a parked steering adjustment into a penalty.
+  if(steerSign)s.lastSteerSign=steerSign;
   if(state.gear&&s.lastGear&&state.gear!==s.lastGear)s.gearChanges++;
   if(state.gear)s.lastGear=state.gear;
   if(parkingSuccess){
@@ -48,7 +51,7 @@ export function extractTrainingEvents(session){
   if(!samples.length)return{maxLateral:null,maxHeading:null,maxSpeed:null,firstLineTouch:null,steeringChanges:[],gearChanges:[],completion:null};
   const eventFrom=(sample,index,extra={})=>({index,t:sample.t,rearX:sample.rearX,rearZ:sample.rearZ,yaw:sample.yaw,speed:sample.speed,steer:sample.steer,gear:sample.gear,...extra});
   let lateralIndex=0,headingIndex=0,speedIndex=0,firstLineTouch=null,completion=null;const steeringChanges=[],gearChanges=[];let previousSteerSign=0,previousGear=samples[0].gear,wasTouching=false;
-  for(let i=0;i<samples.length;i++){const p=samples[i];if(Math.abs(p.lateral)>Math.abs(samples[lateralIndex].lateral))lateralIndex=i;if(Math.abs(p.headingErrorDeg)>Math.abs(samples[headingIndex].headingErrorDeg))headingIndex=i;if(Math.abs(p.speed)>Math.abs(samples[speedIndex].speed))speedIndex=i;if(p.lineTouch&&!wasTouching&&firstLineTouch===null)firstLineTouch=eventFrom(p,i,{type:'line-touch'});wasTouching=p.lineTouch;const steerSign=signWithDeadzone(p.steer),movingForSteeringCorrection=isMovingForSteeringCorrection(p.speed);if(movingForSteeringCorrection&&steerSign&&previousSteerSign&&steerSign!==previousSteerSign)steeringChanges.push(eventFrom(p,i,{type:'steering-change',from:previousSteerSign,to:steerSign}));if(movingForSteeringCorrection&&steerSign)previousSteerSign=steerSign;if(i&&p.gear&&previousGear&&p.gear!==previousGear)gearChanges.push(eventFrom(p,i,{type:'gear-change',from:previousGear,to:p.gear}));if(p.gear)previousGear=p.gear;if(completion===null&&p.parkingSuccess&&session?.completed&&p.t-(session.completionCandidateSince??p.t)>=PARKING_COMPLETION_DWELL_SEC-TIME_EPSILON_SEC)completion=eventFrom(p,i,{type:'completion'});}
+  for(let i=0;i<samples.length;i++){const p=samples[i];if(Math.abs(p.lateral)>Math.abs(samples[lateralIndex].lateral))lateralIndex=i;if(Math.abs(p.headingErrorDeg)>Math.abs(samples[headingIndex].headingErrorDeg))headingIndex=i;if(Math.abs(p.speed)>Math.abs(samples[speedIndex].speed))speedIndex=i;if(p.lineTouch&&!wasTouching&&firstLineTouch===null)firstLineTouch=eventFrom(p,i,{type:'line-touch'});wasTouching=p.lineTouch;const steerSign=signWithDeadzone(p.steer),movingForSteeringCorrection=isMovingForSteeringCorrection(p.speed);if(movingForSteeringCorrection&&steerSign&&previousSteerSign&&steerSign!==previousSteerSign)steeringChanges.push(eventFrom(p,i,{type:'steering-change',from:previousSteerSign,to:steerSign}));if(steerSign)previousSteerSign=steerSign;if(i&&p.gear&&previousGear&&p.gear!==previousGear)gearChanges.push(eventFrom(p,i,{type:'gear-change',from:previousGear,to:p.gear}));if(p.gear)previousGear=p.gear;if(completion===null&&p.parkingSuccess&&session?.completed&&p.t-(session.completionCandidateSince??p.t)>=PARKING_COMPLETION_DWELL_SEC-TIME_EPSILON_SEC)completion=eventFrom(p,i,{type:'completion'});}
   return{maxLateral:eventFrom(samples[lateralIndex],lateralIndex,{type:'max-lateral',value:samples[lateralIndex].lateral}),maxHeading:eventFrom(samples[headingIndex],headingIndex,{type:'max-heading',value:samples[headingIndex].headingErrorDeg}),maxSpeed:eventFrom(samples[speedIndex],speedIndex,{type:'max-speed',value:Math.abs(samples[speedIndex].speed)*3.6}),firstLineTouch,steeringChanges,gearChanges,completion};
 }
 
