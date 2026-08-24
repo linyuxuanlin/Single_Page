@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createTrainingSession,recordTrainingSample,summarizeTrainingSession,extractTrainingEvents,STEERING_CORRECTION_MIN_SPEED_MPS} from './session.mjs';
 
-const sample=(t,steer,speed)=>({t,state:{rearX:0,rearZ:0,yaw:0,steer,speed,gear:'R'},deviation:{lateral:0,headingErrorDeg:0}});
+const sample=(t,steer,speed,gear='R')=>({t,state:{rearX:0,rearZ:0,yaw:0,steer,speed,gear},deviation:{lateral:0,headingErrorDeg:0}});
 
 // Turning the wheel left/right while parked is setup, not a trajectory correction.
 let s=createTrainingSession({gear:'R'},0);
@@ -55,5 +55,25 @@ assert.deepEqual(extractTrainingEvents(s).steeringChanges.map(e=>e.index),[]);
 recordTrainingSample(s,sample(.4,.25,-.2));      // actual reversal while moving
 assert.equal(s.steeringDirectionChanges,1);
 assert.deepEqual(extractTrainingEvents(s).steeringChanges.map(e=>e.index),[4]);
+
+// A D/R gear change is also a movement-segment boundary. The ~10 Hz training
+// sampler can miss the exact zero-speed frame during a direction change, so a
+// steering sign change on the first sampled frame in the new gear must not be
+// retroactively scored against the previous gear's steering direction.
+s=createTrainingSession({gear:'R'},0);
+recordTrainingSample(s,sample(0,.25,-.20,'R'));
+recordTrainingSample(s,sample(.1,-.25,.08,'D')); // zero-speed instant was not sampled
+assert.equal(s.gearChanges,1);
+assert.equal(s.steeringDirectionChanges,0);
+let events=extractTrainingEvents(s);
+assert.deepEqual(events.gearChanges.map(e=>e.index),[1]);
+assert.deepEqual(events.steeringChanges.map(e=>e.index),[]);
+
+// Once moving within the new gear, a subsequent true reversal still counts.
+recordTrainingSample(s,sample(.2,.25,.20,'D'));
+assert.equal(s.steeringDirectionChanges,1);
+events=extractTrainingEvents(s);
+assert.deepEqual(events.steeringChanges.map(e=>e.index),[2]);
+assert.equal(summarizeTrainingSession(s).steeringDirectionChanges,1);
 
 console.log('steering-correction-motion-tests: all assertions passed');
