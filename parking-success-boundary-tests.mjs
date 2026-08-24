@@ -9,7 +9,7 @@ assert.equal(parkingSuccess(good),true);
 
 // Completion must remain strict at the user-visible boundaries: merely being inside
 // the painted lines is not enough when the 1.5 cm safety margin is violated.
-const nearLeft={...good,rearX:-0.345};
+const nearLeft={...good,rearX:-0.31};
 assert.equal(isFullyInsideBay(nearLeft,0),true,'fixture should still be geometrically inside the bay');
 assert.equal(isFullyInsideBay(nearLeft,.015),false,'completion safety margin must be enforced');
 assert.equal(parkingSuccess(nearLeft),false);
